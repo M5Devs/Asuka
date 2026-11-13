@@ -1,0 +1,3 @@
+[submodule "plugins/fmtowns/vendor/Geartowns"]
+	path = plugins/fmtowns/vendor/Geartowns
+	url = https://github.com/drhelius/Geartowns

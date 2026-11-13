@@ -8,9 +8,11 @@ Licensed under the [GNU General Public License v3.0](LICENSE).
 
 ## Status
 
-Task 1 — foundation. The skeleton, the plugin ABI (`IEngineCore`), the
-cross-platform dynamic loader, a reference *dummy* plugin and a CLI test runner
-are implemented and verified.
+- **Task 1 — foundation.** The skeleton, the plugin ABI (`IEngineCore`), the
+  cross-platform dynamic loader, a reference *dummy* plugin and a CLI test
+  runner.
+- **Task 2 — first real engine.** The **FM Towns / Marty** core (Geartowns) is
+  integrated as `plugins/fmtowns`.
 
 ## Architecture
 
@@ -80,14 +82,45 @@ src/
 plugins/dummy/
   DummyEngine.{hpp,cpp}   mock core: colour-cycle video + sine audio
   dummy_plugin.cpp        exported create_engine/destroy_engine
+plugins/fmtowns/
+  FMTownsEngine.{hpp,cpp} Geartowns-backed FM Towns / Marty core
+  fmtowns_plugin.cpp      exported create_engine/destroy_engine
+  gt_compat.cpp           provides symbols Geartowns' desktop app supplies
+  vendor/Geartowns/       git submodule (the emulator)
+  CMakeLists.txt
 CMakeLists.txt
 ```
+
+## FM Towns plugin (Geartowns)
+
+`plugins/fmtowns` adapts [Geartowns](https://github.com/drhelius/Geartowns)
+(GPLv3, an FM Towns / Marty emulator) to `IEngineCore`. Only the emulation core
+and its data dependencies are compiled — the SDL3/OpenGL/imgui desktop shell is
+left out, so the plugin has no GUI dependencies.
+
+The plugin is added as a git submodule, so fetch it first:
+
+```sh
+git submodule update --init --recursive
+```
+
+If the submodule is missing, configuration still succeeds and the runner builds;
+CMake prints a warning and simply skips the plugin.
+
+### BIOS / firmware
+
+FM Towns needs the machine ROM set (`FMT_SYS.ROM`, `FMT_DOS.ROM`, `FMT_FNT.ROM`,
+`FMT_DIC.ROM`, plus `FMT_F20.ROM` for some models) pointed at with `--bios`.
+These are copyrighted and are **not** distributed here; without them `init()`
+fails cleanly with a message. Media images (CHD, CUE/BIN, ISO, floppy) load
+after a successful init.
 
 ## Build
 
 Requires CMake ≥ 3.16 and a C++17 compiler.
 
 ```sh
+git submodule update --init --recursive   # fetch Geartowns (for the FM Towns plugin)
 cmake -B build
 cmake --build build
 ```
@@ -95,16 +128,31 @@ cmake --build build
 ## Run
 
 ```sh
+# default plugin (the dummy core)
 ./build/bin/asuka_runner
-# or point it explicitly at a plugin:
-./build/bin/asuka_runner build/plugins/dummy/libasuka_dummy_engine.so
-# or via the environment:
-ASUKA_PLUGIN_PATH=/path/to/plugin.so ./build/bin/asuka_runner
+
+# point it explicitly at a plugin
+./build/bin/asuka_runner --plugin build/plugins/fmtowns/libasuka_fmtowns.so \
+                         --bios /path/to/fmtowns-roms
+
+# more options
+./build/bin/asuka_runner --help
 ```
 
-The runner loads the plugin, initialises it, runs 60 frames while reporting the
-framebuffer size, the centre pixel and the audio sample count, then tears
-everything down and unloads the library.
+| Option | Meaning |
+| --- | --- |
+| `--plugin <path>` | engine plugin shared library to load |
+| `--system <dir>` | engine system/asset directory (first `init()` argument) |
+| `--bios <dir>` | directory with BIOS/ROM files (second `init()` argument) |
+| `--media <path>` | media image (CHD, CUE/BIN, ISO, floppy) |
+| `--frames <N>` | frames to run (default 60) |
+| `--dump-frame <path>` | write the final frame to a binary PPM (P6) |
+
+A plugin path may also be given positionally, or via `ASUKA_PLUGIN_PATH`.
+
+The runner loads the plugin, initialises it, runs the requested frames while
+reporting the framebuffer size and audio sample count, then tears everything
+down and unloads the library.
 
 ## Test
 
