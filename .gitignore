@@ -7,3 +7,6 @@ build-*/
 .cache/
 compile_commands.json
 *.ppm
+
+# Local test assets (copyrighted BIOS ROMs, large disc images) are never tracked.
+test_assets/

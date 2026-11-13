@@ -159,3 +159,26 @@ down and unloads the library.
 ```sh
 ctest --test-dir build --output-on-failure
 ```
+
+## Live boot verification
+
+Beyond the unit tests, the FM Towns plugin can be verified end-to-end against a
+real BIOS and disc image. The assets are copyrighted, so they are **not**
+tracked (everything lives under the git-ignored `test_assets/`).
+
+```sh
+scripts/fetch_test_assets.sh      # BIOS from retrobios + After Burner disc
+scripts/verify_fmtowns_boot.sh    # boots it and asserts the frame has content
+```
+
+`fetch_test_assets.sh` pulls the Fujitsu FM Towns ROM set from
+`Abdess/retrobios` and the After Burner (1987, Sega) CUE/BIN from the Internet
+Archive's `fmtownscdcollection` item. `verify_fmtowns_boot.sh` then boots the
+disc, dumps a frame once the machine has switched to its graphics mode, and
+fails unless the frame has both enough distinct colours and enough non-black
+coverage to be real video rather than a blank screen.
+
+With a genuine ROM set the machine progresses through POST (640×480), the
+boot menu (640×400, text mode), and finally the game's native 320×240 mode,
+which renders the After Burner title with hundreds of distinct colours and
+changes frame to frame.

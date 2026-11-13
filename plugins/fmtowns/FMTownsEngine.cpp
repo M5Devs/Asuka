@@ -13,12 +13,12 @@ namespace {
 // Geartowns' maximum render surface; the actual frame is usually smaller.
 constexpr int kMaxWidth = GT_MAX_FRAME_BUFFER_WIDTH;    // 1024
 constexpr int kMaxHeight = GT_MAX_FRAME_BUFFER_HEIGHT;  // 768
-constexpr int kFrameRate = GT_VIDEO_FRAME_RATE;         // 60
-constexpr int kSampleRate = GT_AUDIO_SAMPLE_RATE;       // 44100
 
-// Audio buffer sized for the highest per-frame sample count plus headroom.
-constexpr size_t kMaxAudioValues =
-    2u * static_cast<size_t>((kSampleRate + kFrameRate - 1) / kFrameRate + 512);
+// Geartowns accumulates one frame of interleaved stereo PCM into a buffer
+// capped at GT_AUDIO_BUFFER_SIZE values and then copies the whole frame out,
+// so the destination must be at least that large (a per-frame estimate is too
+// small and overflows whenever the audio clock runs ahead of the video clock).
+constexpr size_t kMaxAudioValues = GT_AUDIO_BUFFER_SIZE;
 
 }  // namespace
 
