@@ -194,9 +194,38 @@ Build: `cmake -B build && cmake --build build` (default type Release).
 - Container reset wipes `/tmp` (incl. `/tmp/emsdk`) and uninstalls `cmake`;
   reinstall with `sudo apt-get install -y cmake` + emsdk `install/activate latest`.
 
+## Snapshots / save states — Task 7 (commit `58d23f6`)
+
+- `IEngineCore::save_snapshot(path)` / `load_snapshot(path)` added; implemented
+  in `FMTownsEngine` (Geartowns `SaveState`/`LoadState`, index -1 = verbatim
+  path) and `DummyEngine` (frame counter only, exercises the ABI).
+- **Thumbnail = sidecar `.bmp`** next to the state (`ThumbnailPath()`): a
+  bottom-up 24-bit BMP written from the current framebuffer. NOT embedded in
+  the state — Geartowns' desktop loader validates `header.size` against the
+  exact file length, so stripping an embedded image would break the state.
+  Write the BMP *after* `SaveState` succeeds; a missing thumbnail is non-fatal.
+- Front-ends: `asuka_runner` `--save-snapshot`/`--load-snapshot`; `asuka_play`
+  F5/F8 single slot (`--snapshot`, default `<media>.state`); web SNAP/LOAD +
+  preview, persisted via IDBFS (`/bios/snapshots/slotN.{state,bmp}`).
+- **Web gotchas (cost time):**
+  - Emscripten does not export `Module.HEAPU8` unless listed in
+    `-sEXPORTED_RUNTIME_METHODS=…,HEAPU8,…`. Without it, reading the thumbnail
+    pointer threw and the JS silently stopped mid-handler (no log line).
+    Guard the JS on `state.Module.HEAPU8` too.
+  - Don't hand a `_malloc`-based buffer to JS (its pointer isn't in the
+    exported runtime); instead keep a host-side scratch `std::vector<uint8_t>`
+    and publish size via a getter (`asuka_web_snapshot_thumbnail_size()`).
+  - `FS.filesystems.IDBFS` is undefined; use `Module.IDBFS` and make the mount
+    best-effort (non-fatal).
+  - Helpers inside the `extern "C"` block must not return `std::string`
+    (`-Wreturn-type-c-linkage`); keep path helpers in the anonymous namespace.
+- Test `tests/snapshot_test.sh` (ctest `asuka_snapshot`): asserts the BMP
+  header/size and that 121 frames straight == state@120 + 1 frame (byte-exact).
+  Skips when BIOS/media absent. **`ctest` now 5/5.**
+
 ## Verified / known-good
-- `ctest` **4/4**: `asuka_smoke`, `asuka_audio_capture`, `asuka_fmtowns_loads`
-  (WILL_FAIL, no-BIOS error path), `asuka_play_headless`.
+- `ctest` **5/5**: `asuka_smoke`, `asuka_audio_capture`, `asuka_fmtowns_loads`
+  (WILL_FAIL, no-BIOS error path), `asuka_snapshot`, `asuka_play_headless`.
 - Clean rebuild 0 warnings (strict `-Wall -Wextra -Wpedantic -Wconversion …`);
   ASan+UBSan+LSan clean on dummy and 1300-frame real boot through `asuka_play`.
 - Test assets are copyrighted → git-ignored `test_assets/`; fetch with
