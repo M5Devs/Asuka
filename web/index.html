@@ -260,12 +260,17 @@
     #snap-thumb { width: 52px; height: 39px; }
   }
 
-  /* ---- Input-mode toggle: Gamepad <-> PC-98 keyboard ---- */
-  #modebtn {
+  /* ---- Floating tools: input-mode toggle + ROM loader ---- */
+  #tools {
     position: fixed;
     top: calc(10px + env(safe-area-inset-top));
     left: calc(10px + env(safe-area-inset-left));
-    z-index: 21;
+    z-index: 35;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #tools button {
     display: none;
     align-items: center;
     gap: 6px;
@@ -284,11 +289,41 @@
     -webkit-tap-highlight-color: transparent;
     transition: background .12s ease, transform .06s ease;
   }
-  #modebtn.show { display: flex; }
-  #modebtn:active { transform: scale(.95); }
+  #tools button.show { display: flex; }
+  #tools button:active { transform: scale(.95); }
+  #tools button:hover { background: rgba(32, 32, 36, 0.7); }
   #modebtn .glyph { opacity: .38; transition: opacity .12s ease; }
   #modebtn .glyph.active { opacity: 1; }
   #modebtn .swap { font-size: 12px; opacity: .5; }
+  #rombtn .label { font-size: 11px; letter-spacing: .16em; }
+
+  /* ---- Universal drag & drop indicator ---- */
+  #drop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+  }
+  #drop.show { display: flex; }
+  #drop .zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 34px 46px;
+    border: 2px dashed rgba(255, 255, 255, 0.55);
+    border-radius: 18px;
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+  #drop .zone .icon { font-size: 34px; opacity: .85; }
 
   /* ---- Virtual PC-98 keyboard overlay ---- */
   #kbd {
@@ -378,12 +413,28 @@
   </div>
 </div>
 
-<!-- Floating input-mode switch: gamepad pad <-> PC-98 keyboard. -->
-<button id="modebtn" title="Switch input: gamepad / PC-98 keyboard" aria-label="Switch input mode">
-  <span class="glyph gamepad" data-mode="pad">🎮</span>
-  <span class="swap">⇄</span>
-  <span class="glyph kbd" data-mode="kbd">⌨️</span>
-</button>
+<!-- Floating tools: input-mode switch (gamepad pad <-> PC-98 keyboard)
+     and the minimalist ROM loader. -->
+<div id="tools">
+  <button id="modebtn" title="Switch input: gamepad / PC-98 keyboard" aria-label="Switch input mode">
+    <span class="glyph gamepad" data-mode="pad">🎮</span>
+    <span class="swap">⇄</span>
+    <span class="glyph kbd" data-mode="kbd">⌨️</span>
+  </button>
+  <button id="rombtn" title="Load a game image (.hdi .d88 .chd .cue .iso .zip)" aria-label="Load game image">
+    <span class="glyph">📁</span><span class="label">ROM</span>
+  </button>
+</div>
+
+<!-- Hidden picker driven by the ROM button; accept covers PC-98 floppies/HDDs
+     and FM Towns disc images (plus a zip wrapper). -->
+<input id="rom-input" type="file" hidden
+       accept=".hdi,.d88,.fdi,.nhd,.thd,.chd,.cue,.iso,.zip">
+
+<!-- Universal drag & drop indicator: shown while a file hovers the window. -->
+<div id="drop" aria-hidden="true">
+  <div class="zone"><span class="icon">💾</span><span>Drop to boot</span></div>
+</div>
 
 <!-- Virtual PC-98 keyboard. Keys carry data-sc (PC-98 scancode) or data-key
      (host key for the arrows/return/escape the gamepad path already knows). -->
@@ -495,7 +546,10 @@ function log(msg, cls) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-const state = { Module: null, running: false, booting: false, pc98: false, mode: "pad" };
+const state = {
+  Module: null, modulePromise: null, running: false, booting: false,
+  pc98: false, mode: "pad", biosDir: BIOS_DIR,
+};
 
 // ---------------------------------------------------------------------------
 // Input: a single funnel into the engine's C API.
@@ -661,43 +715,102 @@ function waitForIsolation(timeoutMs) {
 // ---------------------------------------------------------------------------
 async function loadModule() {
   if (state.Module) return state.Module;
-  const factory = window.createAsukaModule;
-  if (typeof factory !== "function") {
-    throw new Error("asuka_web.js not loaded (missing createAsukaModule)");
-  }
-  const Module = await factory({
-    canvas: el("canvas"),
-    arguments: [],
-    print: (s) => log(s),
-    printErr: (s) => log(s, "err"),
-  });
-  state.Module = Module;
-  // Debug handle for the console and the headless test harness.
-  window.asuka = {
-    module: Module,
-    ccall: (n, r, a, v) => Module.ccall(n, r, a, v),
-    sendInput,
-    KEY,
-    state,
-  };
-  log("runtime ready", "ok");
-  return Module;
+  if (state.modulePromise) return state.modulePromise;
+  state.modulePromise = (async () => {
+    const factory = window.createAsukaModule;
+    if (typeof factory !== "function") {
+      throw new Error("asuka_web.js not loaded (missing createAsukaModule)");
+    }
+    const Module = await factory({
+      canvas: el("canvas"),
+      arguments: [],
+      print: (s) => log(s),
+      printErr: (s) => log(s, "err"),
+    });
+    state.Module = Module;
+    // Debug handle for the console and the headless test harness.
+    window.asuka = {
+      module: Module,
+      ccall: (n, r, a, v) => Module.ccall(n, r, a, v),
+      sendInput,
+      KEY,
+      state,
+    };
+    log("runtime ready", "ok");
+    return Module;
+  })();
+  return state.modulePromise;
 }
 
 // ---------------------------------------------------------------------------
 // Turnkey boot: load the bundled BIOS + disc from assets/manifest.json and
 // start the engine with no user input.
 // ---------------------------------------------------------------------------
+// Initialise the engine on an image already present in the virtual FS and
+// start the loop. Shared by the bundled auto-boot and the parked-game boot.
+// `mediaPath` may be empty (PC-98 boots with no disc at all).
+function bootEngine(machine, mediaPath) {
+  loaderSet(96, "Warming up the machine…");
+  const ok = state.Module.ccall("asuka_web_init", "number",
+                                ["string", "string", "string"],
+                                [BIOS_DIR, mediaPath, machine]);
+  if (!ok) {
+    const err = state.Module.UTF8ToString(
+      state.Module.ccall("asuka_web_last_error", "number", [], []));
+    throw new Error(err || "engine init failed");
+  }
+  state.biosDir = BIOS_DIR;
+  state.pc98 = state.Module.ccall("asuka_web_is_pc98", "number", [], []) !== 0;
+  state.Module.ccall("asuka_web_start", null, ["number"], [0]);
+  state.running = true;
+  revealPlayer();
+  log(`running (${state.pc98 ? "pc98" : "fmtowns"})`, "ok");
+}
+
+// Stream the manifest's BIOS and media files into the virtual FS with progress.
+async function loadManifestAssets(manifest) {
+  // Prefer the manifest's exact byte sizes: some hosts report a compressed
+  // content-length on HEAD that does not match the decoded body we stream.
+  const all = [...manifest.bios, ...manifest.media];
+  let totalBytes = manifest.totalBytes || all.reduce((a, e) => a + (e.size || 0), 0);
+  if (!totalBytes) {
+    try {
+      const head = await Promise.all(all.map(async (e) =>
+        Number((await fetch(`${ASSET_BASE}/${e.url}`, { method: "HEAD" }))
+          .headers.get("content-length")) || 0));
+      totalBytes = head.reduce((a, b) => a + b, 0);
+    } catch (e) { totalBytes = 0; }
+  }
+
+  let loaded = 0;
+  const bump = (n) => {
+    loaded += n;
+    const pct = totalBytes ? 4 + 84 * (loaded / totalBytes) : 50;
+    loaderSet(pct, `Loading ${(loaded / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MB`);
+  };
+
+  loaderSet(4, "Loading BIOS & disc…");
+  for (const e of manifest.bios) await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name, bump);
+  for (const e of manifest.media) await fetchToFS(`${ASSET_BASE}/${e.url}`, MEDIA_DIR, e.name, bump);
+  log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
+}
+
 async function autoBoot() {
   loaderSet(2, "Booting…");
+  state.booting = true;
   try {
+    // A game parked by a machine switch boots instead of the bundled set.
+    const pending = await takePendingGame();
+
     let manifest = null;
     try {
       const r = await fetch(`${ASSET_BASE}/manifest.json`, { cache: "no-store" });
       if (r.ok) manifest = await r.json();
     } catch (e) { /* no manifest */ }
-    if (!manifest || !Array.isArray(manifest.bios) || !Array.isArray(manifest.media) ||
-        (!manifest.bios.length && !manifest.media.length)) {
+    const haveAssets = manifest && Array.isArray(manifest.bios) &&
+      Array.isArray(manifest.media) && (manifest.bios.length || manifest.media.length);
+
+    if (!haveAssets && !pending) {
       throw new Error("No bundled assets found (assets/manifest.json missing).");
     }
 
@@ -705,32 +818,20 @@ async function autoBoot() {
     await loadModule();
     try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
 
-    // Prefer the manifest's exact byte sizes: some hosts report a compressed
-    // content-length on HEAD that does not match the decoded body we stream.
-    const all = [...manifest.bios, ...manifest.media];
-    let totalBytes = manifest.totalBytes || all.reduce((a, e) => a + (e.size || 0), 0);
-    if (!totalBytes) {
-      try {
-        const head = await Promise.all(all.map(async (e) =>
-          Number((await fetch(`${ASSET_BASE}/${e.url}`, { method: "HEAD" }))
-            .headers.get("content-length")) || 0));
-        totalBytes = head.reduce((a, b) => a + b, 0);
-      } catch (e) { totalBytes = 0; }
+    // Bring in the bundled BIOS even when a game is parked: FM Towns needs its
+    // firmware, and the virtual FS does not survive the reload. PC-98 ignores
+    // it and uses its built-in BIOS I/O emulation.
+    if (haveAssets) await loadManifestAssets(manifest);
+
+    if (pending) {
+      loaderSet(92, "Loading " + pending.name + "…");
+      ensureDir(MEDIA_DIR);
+      const dest = `${MEDIA_DIR}/${pending.name}`;
+      state.Module.FS.writeFile(dest, pending.bytes);
+      bootEngine(pending.machine, dest);
+      return true;
     }
 
-    let loaded = 0;
-    const bump = (n) => {
-      loaded += n;
-      const pct = totalBytes ? 4 + 90 * (loaded / totalBytes) : 50;
-      loaderSet(pct, `Loading ${(loaded / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MB`);
-    };
-
-    loaderSet(4, "Loading BIOS & disc…");
-    for (const e of manifest.bios) await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name, bump);
-    for (const e of manifest.media) await fetchToFS(`${ASSET_BASE}/${e.url}`, MEDIA_DIR, e.name, bump);
-    log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
-
-    loaderSet(96, "Warming up the machine…");
     // The media entry is optional: PC-98 boots from its built-in BIOS I/O
     // emulation with no disc at all, whereas FM Towns needs a disc. The
     // manifest names the disc with "cue" (a CUE/BIN or ISO set) or "media".
@@ -741,36 +842,284 @@ async function autoBoot() {
     // default so existing deployments keep working.
     const wanted = new URLSearchParams(location.search).get("machine") ||
                    manifest.machine || "fmtowns";
-    const ok = state.Module.ccall("asuka_web_init", "number",
-                                  ["string", "string", "string"],
-                                  [BIOS_DIR, mediaPath, wanted]);
-    if (!ok) {
-      const err = state.Module.UTF8ToString(
-        state.Module.ccall("asuka_web_last_error", "number", [], []));
-      throw new Error(err || "engine init failed");
-    }
-    state.pc98 = state.Module.ccall("asuka_web_is_pc98", "number", [], []) !== 0;
-    state.Module.ccall("asuka_web_start", null, ["number"], [0]);
-    state.running = true;
-
-    loaderSet(100, "Running");
-    loaderDone();
-    el("canvas").focus();
-    // The input-mode switch is useful on touch devices (no keyboard) and on
-    // PC-98 generally (the overlay carries the machine's utility keys).
-    if (isTouchDevice() || state.pc98) {
-      el("modebtn").classList.add("show");
-      setInputMode("pad");
-    }
-    el("snapbar").hidden = false;
-    // Show any thumbnail restored from IndexedDB on a previous visit.
-    refreshThumbnail();
-    log(`running (auto-boot, ${state.pc98 ? "pc98" : "fmtowns"})`, "ok");
+    bootEngine(wanted, mediaPath);
     return true;
   } catch (e) {
     loaderFail(e && e.message ? e.message : String(e));
     return false;
+  } finally {
+    state.booting = false;
   }
+}
+
+// Reveal the running machine's controls: hide the loader, focus the canvas,
+// show the input-mode switch (only when it is useful) and the snapshot bar,
+// and refresh the preview. The ROM loader is always available, so it is shown
+// up front rather than here.
+function revealPlayer() {
+  loaderSet(100, "Running");
+  loaderDone();
+  el("canvas").focus();
+  // The input-mode switch is useful on touch devices (no keyboard) and on
+  // PC-98 generally (the overlay carries the machine's utility keys).
+  if (isTouchDevice() || state.pc98) {
+    el("modebtn").classList.add("show");
+  } else {
+    el("modebtn").classList.remove("show");
+  }
+  setInputMode("pad");
+  el("snapbar").hidden = false;
+  refreshThumbnail();
+}
+
+// ---------------------------------------------------------------------------
+// User-supplied game images: the floating ROM picker and universal drag & drop.
+//
+// The extension picks the machine (PC-98 floppies/HDDs vs FM Towns discs). A
+// .zip wrapper is unwrapped in the browser first (Emscripten has no unzip) and
+// its first supported entry is used.
+//
+// The vendored cores power on exactly once per process (the PC-98 core gates
+// its bootstrap on a one-shot flag that teardown never clears), so a machine
+// cannot be re-initialised in place. The first image boots the current runtime;
+// changing the machine afterwards parks the image in IndexedDB and reloads the
+// page, which boots it cleanly in a fresh runtime.
+// ---------------------------------------------------------------------------
+const PC98_EXT = new Set(["hdi", "d88", "fdi", "nhd", "thd", "hdm", "nfd", "2hd", "hdn", "hdd"]);
+const FMT_EXT = new Set(["chd", "iso", "cue", "ccd", "mds", "nrg"]);
+
+function extOf(name) {
+  const dot = name.lastIndexOf(".");
+  return dot < 0 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+// machine: "pc98" / "fmtowns", or null for an unrecognised extension.
+function machineForName(name) {
+  const ext = extOf(name);
+  if (PC98_EXT.has(ext)) return "pc98";
+  if (FMT_EXT.has(ext)) return "fmtowns";
+  return null;
+}
+
+function showDrop(on) {
+  el("drop").classList.toggle("show", !!on);
+}
+
+function dropToast(msg) {
+  // Reuse the snapshot toast: a single, unobtrusive status line.
+  snapToast(msg);
+}
+
+function bootFail(msg) {
+  log("boot failed: " + msg, "err");
+  dropToast(msg);
+  // If nothing is running yet (a failed cold boot), keep the loader's Retry.
+  if (!state.running) loaderFail(msg);
+}
+
+// Unwrap a .zip (stored or deflated) and return its first supported entry.
+// Emscripten cannot unzip, and game images are frequently distributed zipped.
+async function firstZipEntry(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const view = new DataView(buf.buffer);
+  const decoder = new TextDecoder();
+  const found = [];
+  for (let i = buf.length - 22; i >= 0 && i >= buf.length - 66000; i--) {
+    if (view.getUint32(i, true) !== 0x06054b50) continue;  // EOCD
+    const count = view.getUint16(i + 10, true);
+    let off = view.getUint32(i + 16, true);
+    for (let n = 0; n < count && off + 46 <= buf.length; n++) {
+      if (view.getUint32(off, true) !== 0x02014b50) break;  // central header
+      const method = view.getUint16(off + 10, true);
+      const compSize = view.getUint32(off + 20, true);
+      const nameLen = view.getUint16(off + 28, true);
+      const extraLen = view.getUint16(off + 30, true);
+      const commentLen = view.getUint16(off + 32, true);
+      const localOff = view.getUint32(off + 42, true);
+      const name = decoder.decode(buf.subarray(off + 46, off + 46 + nameLen));
+      off += 46 + nameLen + extraLen + commentLen;
+      if (name.endsWith("/") || name.startsWith("__MACOSX")) continue;
+      const base = name.slice(name.lastIndexOf("/") + 1);
+      if (!machineForName(base)) continue;
+      const lnameLen = view.getUint16(localOff + 26, true);
+      const lextraLen = view.getUint16(localOff + 28, true);
+      const start = localOff + 30 + lnameLen + lextraLen;
+      const raw = buf.subarray(start, start + compSize);
+      const data = method === 0 ? raw
+        : method === 8 ? await inflateRaw(raw)
+        : null;
+      if (data) found.push({ name: base, data });
+    }
+    break;
+  }
+  if (!found.length) throw new Error("no supported image inside the zip");
+  return new File([found[0].data], found[0].name);
+}
+
+// Decompress a raw-deflate stream with the browser's DecompressionStream.
+async function inflateRaw(bytes) {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("this browser cannot open compressed zips");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// Load a user-supplied image: detect the machine, mount it, and boot. The first
+// image of a session boots the live runtime; a different machine afterwards
+// parks the image and reloads the page to boot it in a fresh runtime (see the
+// section comment for why an in-place swap is not possible).
+async function loadRomFile(file) {
+  if (!file) return;
+  let f = file;
+  if (extOf(f.name) === "zip") {
+    loaderSet(2, "Unpacking " + f.name + "…");
+    f = await firstZipEntry(f);
+  }
+
+  const machine = machineForName(f.name);
+  if (!machine) throw new Error("unsupported image: " + f.name);
+
+  // A machine cannot be re-initialised in place (see the section comment), so
+  // any load once a runtime exists — a different machine or a fresh disc —
+  // parks the image and reloads. Only a cold start (no engine yet) boots in
+  // place.
+  if (state.running || state.booting) {
+    await parkAndReload(f, machine);
+    return;
+  }
+
+  await waitForIsolation(6000);
+  await loadModule();
+  try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
+
+  // Mount into /media under the file's own name; the engine takes the path.
+  ensureDir(MEDIA_DIR);
+  const dest = `${MEDIA_DIR}/${f.name}`;
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  state.Module.FS.writeFile(dest, bytes);
+
+  const ok = state.Module.ccall("asuka_web_load_rom", "number",
+                                ["string", "string"], [machine, dest]);
+  if (!ok) {
+    const err = state.Module.UTF8ToString(
+      state.Module.ccall("asuka_web_last_error", "number", [], []));
+    throw new Error(err || "load_rom failed");
+  }
+
+  state.pc98 = state.Module.ccall("asuka_web_is_pc98", "number", [], []) !== 0;
+  if (!state.running) {
+    state.Module.ccall("asuka_web_start", null, ["number"], [0]);
+    state.running = true;
+  }
+  revealPlayer();
+  log(`running (${state.pc98 ? "pc98" : "fmtowns"}, ${f.name})`, "ok");
+}
+
+// Park a game image in IndexedDB and reload so a fresh runtime boots it. The
+// reloaded page reads the parked record back (see takePendingGame) instead of
+// the bundled manifest.
+async function parkAndReload(f, machine) {
+  loaderSet(4, "Switching to " + (machine === "pc98" ? "PC-98" : "FM Towns") + "…");
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    await idbPut("pending", { name: f.name, machine, bytes });
+  } catch (e) {
+    throw new Error("could not stage the image: " + (e.message || e));
+  }
+  // A full reload is the clean way to power a fresh machine on.
+  location.reload();
+}
+
+// Minimal IndexedDB key/value store for the parked game image. The snapshot
+// FS already uses IndexedDB, so this costs nothing on browsers that have it.
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("asuka-game", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(key, value) {
+  const db = await idbOpen();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+async function idbTake(key) {
+  const db = await idbOpen();
+  const value = await new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readwrite");
+    const store = tx.objectStore("kv");
+    const get = store.get(key);
+    get.onsuccess = () => { store.delete(key); resolve(get.result); };
+    get.onerror = () => reject(get.error);
+  });
+  db.close();
+  return value;
+}
+
+// Read back a game parked by parkAndReload. Returns null when there is none.
+async function takePendingGame() {
+  try {
+    const rec = await idbTake("pending");
+    if (rec && rec.bytes && rec.machine) return rec;
+  } catch (e) { /* IndexedDB unavailable: fall through */ }
+  return null;
+}
+
+function wireRomLoader() {
+  const input = el("rom-input");
+  el("rombtn").addEventListener("click", (e) => {
+    e.preventDefault();
+    input.value = "";       // re-selecting the same file still fires change
+    input.click();
+  });
+  el("rombtn").addEventListener("contextmenu", (e) => e.preventDefault());
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (file) loadRomFile(file).catch((err) => bootFail(err.message || String(err)));
+  });
+}
+
+// Window-wide drag & drop. dragenter/dragover must preventDefault to allow the
+// drop, and a depth counter keeps the overlay up while crossing child nodes.
+function wireDragDrop() {
+  let depth = 0;
+  const hasFiles = (e) =>
+    !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+
+  window.addEventListener("dragenter", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    showDrop(true);
+  });
+  window.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    showDrop(true);
+  });
+  window.addEventListener("dragleave", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) showDrop(false);
+  });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    showDrop(false);
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) loadRomFile(file).catch((err) => bootFail(err.message || String(err)));
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -849,7 +1198,6 @@ function setInputMode(mode) {
     g.classList.toggle("active", g.dataset.mode === state.mode);
   });
 }
-
 function wireModeButton() {
   el("modebtn").addEventListener("click", (e) => {
     e.preventDefault();
@@ -996,6 +1344,8 @@ window.addEventListener("DOMContentLoaded", () => {
   wireKeyboard();
   wireModeButton();
   wireSnapshots();
+  wireRomLoader();
+  wireDragDrop();
 
   // Physical keyboard: listen on the window so it works whatever has focus,
   // and keep the canvas focused so the SDL2 listener sees the events too.
@@ -1006,6 +1356,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Tapping the game view restores keyboard focus.
   el("stage").addEventListener("pointerdown", () => el("canvas").focus());
+
+  // The ROM loader is the one control that is always useful: show it before
+  // the boot attempt so a user can pick a game even when no bundled assets
+  // exist (or a boot fails).
+  el("rombtn").classList.add("show");
 
   el("canvas").focus();
   el("loader-retry").onclick = () => location.reload();

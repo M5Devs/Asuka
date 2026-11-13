@@ -70,6 +70,9 @@ struct WebState {
     // Which engine the shell asked for ("fmtowns" or "pc98"); kept so the
     // matching destroy function is called on shutdown.
     std::string machine;
+    // Firmware directory the shell supplied at init, reused when it swaps in a
+    // game image at runtime (asuka_web_load_rom).
+    std::string bios_dir;
     std::string last_error;
 
     // Scratch buffer holding the BMP thumbnail most recently requested by the
@@ -322,6 +325,99 @@ void destroy_selected_engine(asuka::IEngineCore* engine, const std::string& name
     destroy_engine(engine);
 }
 
+// Create the requested engine, run init() and (optionally) mount media. On any
+// failure the partially built engine is torn down and nullptr is returned, so
+// callers never have to clean up after it. The SDL window/renderer/audio and
+// the gamepad are owned by the process, not the engine.
+asuka::IEngineCore* start_engine(const std::string& machine,
+                                 const std::string& media_path) {
+    asuka::IEngineCore* engine = create_selected_engine(machine);
+    if (engine == nullptr) {
+        set_error("engine allocation failed");
+        return nullptr;
+    }
+
+    if (!engine->init("", g_state.bios_dir)) {
+        set_error("engine init() failed (missing or invalid BIOS?)");
+        destroy_selected_engine(engine, machine);
+        return nullptr;
+    }
+
+    if (!media_path.empty() && !engine->load_media(media_path)) {
+        set_error("load_media() failed: " + media_path);
+        engine->shutdown();
+        destroy_selected_engine(engine, machine);
+        return nullptr;
+    }
+
+    return engine;
+}
+
+// Drop the running engine, if any. The shell may call this while the main loop
+// is live (a runtime machine swap); the loop tolerates a null engine.
+void stop_engine() {
+    if (g_state.engine != nullptr) {
+        g_state.engine->shutdown();
+        destroy_selected_engine(g_state.engine, g_state.machine);
+        g_state.engine = nullptr;
+    }
+    if (g_state.audio_device != 0) {
+        // Drop any PCM the old machine queued so the swap does not leak a few
+        // milliseconds of the previous engine's audio.
+        SDL_ClearQueuedAudio(g_state.audio_device);
+    }
+}
+
+// Bring up the process-wide SDL platform (window, renderer, audio, gamepad)
+// once. The platform outlives any single engine, so a runtime machine swap
+// (asuka_web_load_rom) keeps it and only replaces the engine. Returns false and
+// sets the error string on failure.
+bool ensure_platform() {
+    if (g_state.window != nullptr) {
+        return true;
+    }
+
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER |
+                 SDL_INIT_EVENTS) != 0) {
+        set_error(std::string("SDL_Init failed: ") + SDL_GetError());
+        return false;
+    }
+
+    // SDL_CreateWindow uses Module.canvas when the shell sets it.
+    g_state.window = SDL_CreateWindow("Asuka", SDL_WINDOWPOS_CENTERED,
+                                      SDL_WINDOWPOS_CENTERED, 640, 480,
+                                      SDL_WINDOW_RESIZABLE);
+    if (g_state.window == nullptr) {
+        set_error(std::string("cannot create window: ") + SDL_GetError());
+        return false;
+    }
+
+    g_state.renderer = SDL_CreateRenderer(g_state.window, -1,
+                                          SDL_RENDERER_ACCELERATED);
+    if (g_state.renderer == nullptr) {
+        g_state.renderer = SDL_CreateRenderer(g_state.window, -1, 0);
+    }
+    if (g_state.renderer == nullptr) {
+        set_error(std::string("cannot create renderer: ") + SDL_GetError());
+        return false;
+    }
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    SDL_SetRenderDrawColor(g_state.renderer, 0, 0, 0, 255);
+
+    g_state.audio_device = open_audio();
+
+    // Open the first available game controller, if any.
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (SDL_IsGameController(i) != 0) {
+            g_state.pad = SDL_GameControllerOpen(i);
+            if (g_state.pad != nullptr) {
+                break;
+            }
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -343,69 +439,47 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
     }
 
     g_state.machine = machine != nullptr ? machine : "";
+    g_state.bios_dir = bios_dir != nullptr ? bios_dir : "";
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER |
-                 SDL_INIT_EVENTS) != 0) {
-        set_error(std::string("SDL_Init failed: ") + SDL_GetError());
+    if (!ensure_platform()) {
         return 0;
     }
 
-    // SDL_CreateWindow uses Module.canvas when the shell sets it.
-    g_state.window = SDL_CreateWindow("Asuka", SDL_WINDOWPOS_CENTERED,
-                                      SDL_WINDOWPOS_CENTERED, 640, 480,
-                                      SDL_WINDOW_RESIZABLE);
-    if (g_state.window == nullptr) {
-        set_error(std::string("cannot create window: ") + SDL_GetError());
-        return 0;
-    }
-
-    g_state.renderer = SDL_CreateRenderer(g_state.window, -1,
-                                          SDL_RENDERER_ACCELERATED);
-    if (g_state.renderer == nullptr) {
-        g_state.renderer = SDL_CreateRenderer(g_state.window, -1, 0);
-    }
-    if (g_state.renderer == nullptr) {
-        set_error(std::string("cannot create renderer: ") + SDL_GetError());
-        return 0;
-    }
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
-    SDL_SetRenderDrawColor(g_state.renderer, 0, 0, 0, 255);
-
-    g_state.audio_device = open_audio();
-
-    // Open the first available game controller, if any.
-    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
-        if (SDL_IsGameController(i) != 0) {
-            g_state.pad = SDL_GameControllerOpen(i);
-            if (g_state.pad != nullptr) {
-                break;
-            }
-        }
-    }
-
-    g_state.engine = create_selected_engine(g_state.machine);
+    const std::string media = media_path != nullptr ? media_path : "";
+    g_state.engine = start_engine(g_state.machine, media);
     if (g_state.engine == nullptr) {
-        set_error("engine allocation failed");
         return 0;
     }
 
-    const std::string bios = bios_dir != nullptr ? bios_dir : "";
-    if (!g_state.engine->init("", bios)) {
-        set_error("engine init() failed (missing or invalid BIOS?)");
-        g_state.engine->shutdown();
-        destroy_selected_engine(g_state.engine, g_state.machine);
-        g_state.engine = nullptr;
+    g_state.last_error.clear();
+    g_state.frames = 0;
+    g_state.input_events = 0;
+    return 1;
+}
+
+// Swap in a game image at runtime. The shell calls this after mounting a
+// user-supplied file: it drops the current engine (whatever it was) and starts
+// a fresh one with the requested machine and media. The canvas, audio and
+// gamepad are kept, so the main loop never stops. Returns 1 on success, 0 on
+// failure (see asuka_web_last_error()).
+//
+// Note: the vendored cores power on only once per process, so the shell only
+// uses this for a cold start (no engine yet). A machine change while running is
+// handled by reloading the page into a fresh runtime.
+EMSCRIPTEN_KEEPALIVE int asuka_web_load_rom(const char* machine,
+                                            const char* media_path) {
+    if (!ensure_platform()) {
         return 0;
     }
 
-    if (media_path != nullptr && media_path[0] != '\0') {
-        if (!g_state.engine->load_media(media_path)) {
-            set_error(std::string("load_media() failed: ") + media_path);
-            g_state.engine->shutdown();
-            destroy_selected_engine(g_state.engine, g_state.machine);
-            g_state.engine = nullptr;
-            return 0;
-        }
+    stop_engine();
+
+    g_state.machine = machine != nullptr ? machine : "";
+    const std::string media = media_path != nullptr ? media_path : "";
+
+    g_state.engine = start_engine(g_state.machine, media);
+    if (g_state.engine == nullptr) {
+        return 0;
     }
 
     g_state.last_error.clear();
@@ -568,11 +642,7 @@ EMSCRIPTEN_KEEPALIVE const char* asuka_web_last_error() {
 EMSCRIPTEN_KEEPALIVE void asuka_web_shutdown() {
     asuka_web_stop();
 
-    if (g_state.engine != nullptr) {
-        g_state.engine->shutdown();
-        destroy_selected_engine(g_state.engine, g_state.machine);
-        g_state.engine = nullptr;
-    }
+    stop_engine();
     if (g_state.pad != nullptr) {
         SDL_GameControllerClose(g_state.pad);
         g_state.pad = nullptr;
