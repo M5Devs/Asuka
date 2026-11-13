@@ -223,9 +223,56 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   header/size and that 121 frames straight == state@120 + 1 frame (byte-exact).
   Skips when BIOS/media absent. **`ctest` now 5/5.**
 
+## PC-98 / NP2kai engine — Task 8 (commit `17056a7`)
+
+- `plugins/pc98` wraps **NP2kai** (submodule `uraraworks/NP2kai-wasm`, branch
+  `wasm`, commit `db88c119…`) via its **Libretro** core
+  (`sdl/libretro/libretro.c`, built `-D__LIBRETRO__`) — the only headless
+  pull-model entry point. Host = Libretro frontend: answer the environment
+  callback, capture what `retro_run()` pushes. `retro_run()` == one frame.
+- **PC-98 boots with NO external ROM**: it falls back to built-in BIOS I/O
+  emulation, so the engine renders 640x400 and streams 782 samples/ch audio
+  with a dummy/absent BIOS. This is why `tests/pc98_test.sh` needs no
+  copyrighted assets and always runs (unlike the FM Towns test, which skips).
+- **`retro_serialize` bug (cost time):** `statsave_save_d`/`statsave_load_d`
+  **OR informational bits** (`STATFLAG_WARNING`/`VERCHG`) into their return.
+  Only `STATFLAG_FAILURE` (`-1`) means failure — check `== STATFLAG_FAILURE`,
+  NOT `!= STATFLAG_SUCCESS`. Snapshot = ~21 MB state + 768,015-byte BMP
+  (640x400x3+54).
+- **Save/load need on-demand priming**: the runner loads a state before the
+  first frame, but the core needs one `retro_run()` first. Prime lazily in
+  `step_frame()`/`load_snapshot()`.
+- **Scan codes are PC-98 hardware codes, not PC/AT** (`keystat.h` NKEY_*):
+  `HELP=0x3f`, `STOP=0x60`, `ROLLUP=0x36`, `ROLLDOWN=0x37`, `RETURN=0x1c`,
+  `F1=0x62`..`F5=0x66`, `A=0x1d`, `Z=0x29`, `SPACE=0x34`, `ESC=0x00`. Inject via
+  `keystat_senddata(code | (pressed ? 0 : 0x80))`.
+- **Two factory names must not collide.** Both engines export generic
+  `create_engine`/`destroy_engine`; the web links both into one module. Rule:
+  the **shared desktop** plugins export the generic names (behind
+  `ASUKA_PLUGIN_SHARED`); the **web static** libs export only engine-specific
+  names (`create_pc98_engine`/`destroy_pc98_engine`). `#if defined(ASUKA_BUILD_WEB)`
+  does NOT work — that is a CMake variable, not a compile definition. Verify
+  with `emnm lib/libasuka_pc98_static.a | grep create_engine`.
+- **`IEngineCore::send_scancode(int,bool)`** added (default no-op) for keys the
+  `asuka::Key` set can't express; `asuka_runner --press-scancode <frame>:<code>`
+  (hex ok) drives it in tests.
+- Web host: `asuka_web_init(bios_dir, media_path, machine)` (3rd arg, default
+  `"fmtowns"`), plus `asuka_web_scancode` / `asuka_web_is_pc98`. Shell picks the
+  machine from `?machine=` → `manifest.machine` → `"fmtowns"`. Media is optional
+  (PC-98 needs none); manifest names the disc via `cue` **or** `media`.
+- Web shell: floating **🎮 ⇄ ⌨️** toggle swaps `#pad` (gamepad) and `#kbd`
+  (virtual PC-98 keyboard: Q-P/A-L/Z-M/digits/Space/RETURN + HELP/STOP/ROLL
+  UP/DOWN/F1-F5). Pad→`asuka_web_key`; keyboard→`asuka_web_scancode`. Physical
+  typing maps to PC-98 codes when `state.pc98` (arrows still drive the pad).
+  `releaseAll()` on every mode switch. Verified in-browser: HELP(63)/RET(28)
+  reach the engine (input counter incremented).
+- `ctest` now **5/5** (added `asuka_pc98`); web build links both cores, 0
+  warnings.
+
 ## Verified / known-good
 - `ctest` **5/5**: `asuka_smoke`, `asuka_audio_capture`, `asuka_fmtowns_loads`
-  (WILL_FAIL, no-BIOS error path), `asuka_snapshot`, `asuka_play_headless`.
+  (WILL_FAIL, no-BIOS error path), `asuka_snapshot`, `asuka_pc98`.
+  (`asuka_play_headless` only when SDL2 is present; not in this container.)
 - Clean rebuild 0 warnings (strict `-Wall -Wextra -Wpedantic -Wconversion …`);
   ASan+UBSan+LSan clean on dummy and 1300-frame real boot through `asuka_play`.
 - Test assets are copyrighted → git-ignored `test_assets/`; fetch with
