@@ -51,6 +51,16 @@ public:
     // `pressed` is true on key-down and false on key-up.
     virtual void send_input(uint32_t key_code, bool pressed) = 0;
 
+    // Feed a core-native raw key code, for keys the small asuka::Key set
+    // cannot express (for example a PC-98 keyboard overlay's HELP, STOP,
+    // ROLL UP/DOWN and F1-F5 keys). `scancode` is core-defined; `pressed` is
+    // true on key-down and false on key-up. Cores with no such concept simply
+    // ignore it: the default implementation does nothing.
+    virtual void send_scancode(int scancode, bool pressed) {
+        (void)scancode;
+        (void)pressed;
+    }
+
     // Serialise the complete machine state (CPU, memory, devices) to
     // `filepath` so it can be restored exactly with load_snapshot(). Cores
     // that can render also write a visual thumbnail next to the state file

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
-<title>Asuka — FM Towns</title>
+<title>Asuka — FM Towns / PC-98</title>
 <style>
   :root {
     --cell: clamp(46px, 9.5vmin, 70px);
@@ -259,6 +259,89 @@
     #snapbar button .label { display: none; }
     #snap-thumb { width: 52px; height: 39px; }
   }
+
+  /* ---- Input-mode toggle: Gamepad <-> PC-98 keyboard ---- */
+  #modebtn {
+    position: fixed;
+    top: calc(10px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    z-index: 21;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--edge);
+    background: rgba(10, 10, 12, 0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #fff;
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background .12s ease, transform .06s ease;
+  }
+  #modebtn.show { display: flex; }
+  #modebtn:active { transform: scale(.95); }
+  #modebtn .glyph { opacity: .38; transition: opacity .12s ease; }
+  #modebtn .glyph.active { opacity: 1; }
+  #modebtn .swap { font-size: 12px; opacity: .5; }
+
+  /* ---- Virtual PC-98 keyboard overlay ---- */
+  #kbd {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 16;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 8px calc(6px + env(safe-area-inset-right))
+             calc(8px + env(safe-area-inset-bottom))
+             calc(6px + env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  #kbd.show { display: flex; }
+  #kbd .row {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    max-width: 760px;
+  }
+  #kbd .key {
+    pointer-events: auto;
+    flex: 1 1 0;
+    min-width: 0;
+    height: clamp(30px, 6.4vmin, 44px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 2px;
+    border-radius: 7px;
+    border: 1px solid var(--edge);
+    background: var(--key-bg);
+    color: #fff;
+    font: inherit;
+    font-size: clamp(10px, 2.4vmin, 13px);
+    letter-spacing: .02em;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    transition: background .08s ease, transform .06s ease;
+  }
+  #kbd .key.on { background: var(--key-bg-on); transform: scale(.94); }
+  #kbd .key.util {
+    flex: 0 1 auto;
+    padding: 0 8px;
+    font-size: clamp(9px, 2.1vmin, 12px);
+    background: rgba(255, 93, 143, 0.16);
+  }
+  #kbd .key.util.on { background: rgba(255, 93, 143, 0.5); }
+  #kbd .key.wide { flex: 2.4 1 0; }
 </style>
 </head>
 <body>
@@ -295,6 +378,82 @@
   </div>
 </div>
 
+<!-- Floating input-mode switch: gamepad pad <-> PC-98 keyboard. -->
+<button id="modebtn" title="Switch input: gamepad / PC-98 keyboard" aria-label="Switch input mode">
+  <span class="glyph gamepad" data-mode="pad">🎮</span>
+  <span class="swap">⇄</span>
+  <span class="glyph kbd" data-mode="kbd">⌨️</span>
+</button>
+
+<!-- Virtual PC-98 keyboard. Keys carry data-sc (PC-98 scancode) or data-key
+     (host key for the arrows/return/escape the gamepad path already knows). -->
+<div id="kbd" aria-hidden="true">
+  <div class="row">
+    <button class="key util" data-sc="0x62" tabindex="-1">F1</button>
+    <button class="key util" data-sc="0x63" tabindex="-1">F2</button>
+    <button class="key util" data-sc="0x64" tabindex="-1">F3</button>
+    <button class="key util" data-sc="0x65" tabindex="-1">F4</button>
+    <button class="key util" data-sc="0x66" tabindex="-1">F5</button>
+    <button class="key util" data-sc="0x3f" tabindex="-1">HELP</button>
+    <button class="key util" data-sc="0x60" tabindex="-1">STOP</button>
+    <button class="key util" data-sc="0x36" tabindex="-1">ROLL<br>UP</button>
+    <button class="key util" data-sc="0x37" tabindex="-1">ROLL<br>DOWN</button>
+  </div>
+  <div class="row">
+    <button class="key" data-sc="0x01" tabindex="-1">1</button>
+    <button class="key" data-sc="0x02" tabindex="-1">2</button>
+    <button class="key" data-sc="0x03" tabindex="-1">3</button>
+    <button class="key" data-sc="0x04" tabindex="-1">4</button>
+    <button class="key" data-sc="0x05" tabindex="-1">5</button>
+    <button class="key" data-sc="0x06" tabindex="-1">6</button>
+    <button class="key" data-sc="0x07" tabindex="-1">7</button>
+    <button class="key" data-sc="0x08" tabindex="-1">8</button>
+    <button class="key" data-sc="0x09" tabindex="-1">9</button>
+    <button class="key" data-sc="0x0a" tabindex="-1">0</button>
+  </div>
+  <div class="row">
+    <button class="key" data-sc="0x10" tabindex="-1">Q</button>
+    <button class="key" data-sc="0x11" tabindex="-1">W</button>
+    <button class="key" data-sc="0x12" tabindex="-1">E</button>
+    <button class="key" data-sc="0x13" tabindex="-1">R</button>
+    <button class="key" data-sc="0x14" tabindex="-1">T</button>
+    <button class="key" data-sc="0x15" tabindex="-1">Y</button>
+    <button class="key" data-sc="0x16" tabindex="-1">U</button>
+    <button class="key" data-sc="0x17" tabindex="-1">I</button>
+    <button class="key" data-sc="0x18" tabindex="-1">O</button>
+    <button class="key" data-sc="0x19" tabindex="-1">P</button>
+  </div>
+  <div class="row">
+    <button class="key" data-sc="0x1d" tabindex="-1">A</button>
+    <button class="key" data-sc="0x1e" tabindex="-1">S</button>
+    <button class="key" data-sc="0x1f" tabindex="-1">D</button>
+    <button class="key" data-sc="0x20" tabindex="-1">F</button>
+    <button class="key" data-sc="0x21" tabindex="-1">G</button>
+    <button class="key" data-sc="0x22" tabindex="-1">H</button>
+    <button class="key" data-sc="0x23" tabindex="-1">J</button>
+    <button class="key" data-sc="0x24" tabindex="-1">K</button>
+    <button class="key" data-sc="0x25" tabindex="-1">L</button>
+    <button class="key" data-sc="0x1c" tabindex="-1">RET</button>
+  </div>
+  <div class="row">
+    <button class="key wide" data-sc="0x29" tabindex="-1">Z</button>
+    <button class="key" data-sc="0x2a" tabindex="-1">X</button>
+    <button class="key" data-sc="0x2b" tabindex="-1">C</button>
+    <button class="key" data-sc="0x2c" tabindex="-1">V</button>
+    <button class="key" data-sc="0x2d" tabindex="-1">B</button>
+    <button class="key" data-sc="0x2e" tabindex="-1">N</button>
+    <button class="key" data-sc="0x2f" tabindex="-1">M</button>
+    <button class="key wide" data-sc="0x34" tabindex="-1">SPACE</button>
+  </div>
+  <div class="row">
+    <button class="key" data-sc="0x3b" tabindex="-1">←</button>
+    <button class="key" data-sc="0x3a" tabindex="-1">↑</button>
+    <button class="key" data-sc="0x3d" tabindex="-1">↓</button>
+    <button class="key" data-sc="0x3c" tabindex="-1">→</button>
+    <button class="key util" data-sc="0x00" tabindex="-1">ESC</button>
+  </div>
+</div>
+
 <pre id="log" hidden></pre>
 
 <script src="asuka_web.js"></script>
@@ -307,6 +466,17 @@
 const KEY = {
   none: 0, up: 1, down: 2, left: 3, right: 4,
   start: 5, select: 6, a: 7, b: 8, x: 9, y: 10, l: 11, r: 12,
+};
+
+// PC-98 keyboard scancodes (make codes, 0x00-based), for the virtual keyboard
+// overlay. These go straight to the engine's core-native input path
+// (asuka_web_scancode), because asuka::Key cannot express HELP/STOP/ROLL/F-keys.
+// Values follow the PC-98 hardware layout, not PC/AT.
+const PC98_SC = {
+  ESC: 0x00, TAB: 0x0f, ENTER: 0x1c, SPACE: 0x34,
+  UP: 0x3a, LEFT: 0x3b, RIGHT: 0x3c, DOWN: 0x3d,
+  ROLLUP: 0x36, ROLLDOWN: 0x37, HELP: 0x3f, STOP: 0x60,
+  F1: 0x62, F2: 0x63, F3: 0x64, F4: 0x65, F5: 0x66,
 };
 
 const BIOS_DIR = "/bios";
@@ -325,16 +495,18 @@ function log(msg, cls) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-const state = { Module: null, running: false, booting: false };
+const state = { Module: null, running: false, booting: false, pc98: false, mode: "pad" };
 
 // ---------------------------------------------------------------------------
 // Input: a single funnel into the engine's C API.
 //
-// asuka_web_key(key, pressed) is the exported entry point (see
-// src/web/main_web.cpp). The engine's keyboard sink is idempotent, so the
-// on-screen pad and the physical keyboard can both feed it without double
-// events mattering. `pressed` tracks held keys so we can release everything on
-// focus loss and never leave a button stuck down.
+// asuka_web_key(key, pressed) feeds the small asuka::Key set (gamepad buttons);
+// asuka_web_scancode(sc, pressed) feeds a core-native PC-98 scancode, used by
+// the virtual keyboard for keys asuka::Key cannot express. The engine's
+// keyboard sink is idempotent, so the on-screen controls and a physical
+// keyboard can both feed it without double events mattering. `pressed` tracks
+// held keys so we can release everything on focus loss and never leave a
+// button stuck down.
 // ---------------------------------------------------------------------------
 const pressed = new Set();
 
@@ -347,10 +519,30 @@ function sendInput(name, on) {
   state.Module.ccall("asuka_web_key", null, ["number", "number"], [id, on ? 1 : 0]);
 }
 
+// Feed a PC-98 scancode. `tag` identifies the source key (e.g. "kbd:HELP") so
+// overlapping press/release pairs from touch and a physical keyboard dedupe
+// like sendInput does. `heldSc` remembers the code for each tag so releaseAll
+// can let go of keys even after their element is gone.
+function sendScancode(tag, sc, on) {
+  if (!state.Module) return;
+  if (on) {
+    if (heldSc.has(tag)) return;
+    heldSc.set(tag, sc);
+  } else {
+    if (!heldSc.has(tag)) return;
+    heldSc.delete(tag);
+  }
+  state.Module.ccall("asuka_web_scancode", null, ["number", "number"], [sc, on ? 1 : 0]);
+}
+
 function releaseAll() {
   for (const name of [...pressed]) sendInput(name, false);
-  document.querySelectorAll("#pad .key.on").forEach((b) => b.classList.remove("on"));
+  for (const [tag, sc] of [...heldSc]) sendScancode(tag, sc, false);
+  document.querySelectorAll("#pad .key.on, #kbd .key.on")
+    .forEach((b) => b.classList.remove("on"));
 }
+
+const heldSc = new Map();
 
 function reset() {
   if (!state.Module) return;
@@ -504,7 +696,8 @@ async function autoBoot() {
       const r = await fetch(`${ASSET_BASE}/manifest.json`, { cache: "no-store" });
       if (r.ok) manifest = await r.json();
     } catch (e) { /* no manifest */ }
-    if (!manifest || !manifest.cue || !Array.isArray(manifest.bios) || !manifest.bios.length) {
+    if (!manifest || !Array.isArray(manifest.bios) || !Array.isArray(manifest.media) ||
+        (!manifest.bios.length && !manifest.media.length)) {
       throw new Error("No bundled assets found (assets/manifest.json missing).");
     }
 
@@ -537,26 +730,42 @@ async function autoBoot() {
     for (const e of manifest.media) await fetchToFS(`${ASSET_BASE}/${e.url}`, MEDIA_DIR, e.name, bump);
     log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
 
-    loaderSet(96, "Warming up the FM Towns…");
-    const mediaPath = `${MEDIA_DIR}/${manifest.cue}`;
-    const ok = state.Module.ccall("asuka_web_init", "number", ["string", "string"],
-                                  [BIOS_DIR, mediaPath]);
+    loaderSet(96, "Warming up the machine…");
+    // The media entry is optional: PC-98 boots from its built-in BIOS I/O
+    // emulation with no disc at all, whereas FM Towns needs a disc. The
+    // manifest names the disc with "cue" (a CUE/BIN or ISO set) or "media".
+    const mediaName = manifest.cue || manifest.media;
+    const mediaPath = mediaName ? `${MEDIA_DIR}/${mediaName}` : "";
+    // The machine comes from ?machine= (so a PC-98 set can be booted without
+    // editing the manifest) or the manifest's "machine" field; FM Towns is the
+    // default so existing deployments keep working.
+    const wanted = new URLSearchParams(location.search).get("machine") ||
+                   manifest.machine || "fmtowns";
+    const ok = state.Module.ccall("asuka_web_init", "number",
+                                  ["string", "string", "string"],
+                                  [BIOS_DIR, mediaPath, wanted]);
     if (!ok) {
       const err = state.Module.UTF8ToString(
         state.Module.ccall("asuka_web_last_error", "number", [], []));
       throw new Error(err || "engine init failed");
     }
+    state.pc98 = state.Module.ccall("asuka_web_is_pc98", "number", [], []) !== 0;
     state.Module.ccall("asuka_web_start", null, ["number"], [0]);
     state.running = true;
 
     loaderSet(100, "Running");
     loaderDone();
     el("canvas").focus();
-    if (isTouchDevice()) el("pad").classList.add("show");
+    // The input-mode switch is useful on touch devices (no keyboard) and on
+    // PC-98 generally (the overlay carries the machine's utility keys).
+    if (isTouchDevice() || state.pc98) {
+      el("modebtn").classList.add("show");
+      setInputMode("pad");
+    }
     el("snapbar").hidden = false;
     // Show any thumbnail restored from IndexedDB on a previous visit.
     refreshThumbnail();
-    log("running (auto-boot)", "ok");
+    log(`running (auto-boot, ${state.pc98 ? "pc98" : "fmtowns"})`, "ok");
     return true;
   } catch (e) {
     loaderFail(e && e.message ? e.message : String(e));
@@ -578,11 +787,43 @@ const SCAN_TO_KEY = {
   Space: "a", KeyZ: "b", KeyX: "x", KeyC: "y",
 };
 
+// Physical-keyboard -> PC-98 scancode map. Used when the machine is a PC-98:
+// typing goes to the emulated keyboard, while the arrow keys still double as
+// the gamepad d-pad (via SCAN_TO_KEY) so pad-driven games stay playable.
+const PHYS_TO_PC98 = {
+  Escape: PC98_SC.ESC, Tab: PC98_SC.TAB,
+  Enter: PC98_SC.ENTER, NumpadEnter: PC98_SC.ENTER,
+  Space: PC98_SC.SPACE, Backspace: 0x0e,
+  ArrowUp: PC98_SC.UP, ArrowDown: PC98_SC.DOWN,
+  ArrowLeft: PC98_SC.LEFT, ArrowRight: PC98_SC.RIGHT,
+  Home: PC98_SC.HELP, Insert: PC98_SC.ROLLUP, Delete: PC98_SC.ROLLDOWN,
+  F1: PC98_SC.F1, F2: PC98_SC.F2, F3: PC98_SC.F3,
+  F4: PC98_SC.F4, F5: PC98_SC.F5,
+  Digit1: 0x01, Digit2: 0x02, Digit3: 0x03, Digit4: 0x04, Digit5: 0x05,
+  Digit6: 0x06, Digit7: 0x07, Digit8: 0x08, Digit9: 0x09, Digit0: 0x0a,
+  KeyQ: 0x10, KeyW: 0x11, KeyE: 0x12, KeyR: 0x13, KeyT: 0x14,
+  KeyY: 0x15, KeyU: 0x16, KeyI: 0x17, KeyO: 0x18, KeyP: 0x19,
+  KeyA: 0x1d, KeyS: 0x1e, KeyD: 0x1f, KeyF: 0x20, KeyG: 0x21,
+  KeyH: 0x22, KeyJ: 0x23, KeyK: 0x24, KeyL: 0x25,
+  KeyZ: 0x29, KeyX: 0x2a, KeyC: 0x2b, KeyV: 0x2c, KeyB: 0x2d,
+  KeyN: 0x2e, KeyM: 0x2f,
+};
+
 function onKey(e, on) {
   if (on && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
-  if (on && e.code === "F2") { saveSnapshot(); e.preventDefault(); return; }
-  if (on && e.code === "F4") { loadSnapshot(); e.preventDefault(); return; }
+  if (on && e.code === "F2" && !state.pc98) { saveSnapshot(); e.preventDefault(); return; }
+  if (on && e.code === "F4" && !state.pc98) { loadSnapshot(); e.preventDefault(); return; }
   if (on && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
+
+  if (state.pc98) {
+    const sc = PHYS_TO_PC98[e.code];
+    if (sc !== undefined) {
+      if (!e.repeat || !on) sendScancode("phys:" + e.code, sc, on);
+      e.preventDefault();
+    }
+  }
+  // Arrow keys keep driving the gamepad d-pad (the PC-98 overlay has its own
+  // arrow keys for the emulated keyboard).
   const name = SCAN_TO_KEY[e.code];
   if (name) { if (!e.repeat || !on) sendInput(name, on); e.preventDefault(); }
 }
@@ -596,26 +837,62 @@ function toggleFullscreen() {
   }
 }
 
+// The two on-screen control surfaces: the gamepad pad (#pad) and the virtual
+// PC-98 keyboard (#kbd). Only one is visible at a time; the floating #modebtn
+// swaps between them. Held keys are released on every switch so nothing sticks.
+function setInputMode(mode) {
+  state.mode = mode === "kbd" ? "kbd" : "pad";
+  releaseAll();
+  el("pad").classList.toggle("show", state.mode === "pad");
+  el("kbd").classList.toggle("show", state.mode === "kbd");
+  document.querySelectorAll("#modebtn .glyph").forEach((g) => {
+    g.classList.toggle("active", g.dataset.mode === state.mode);
+  });
+}
+
+function wireModeButton() {
+  el("modebtn").addEventListener("click", (e) => {
+    e.preventDefault();
+    setInputMode(state.mode === "pad" ? "kbd" : "pad");
+  });
+  el("modebtn").addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+// Bind a button element to a press/release handler pair, with pointer capture
+// so a finger sliding off the key still releases it.
+function bindHold(btn, down, up) {
+  const onDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not critical */ }
+    btn.classList.add("on");
+    down();
+  };
+  const onUp = (e) => {
+    e.preventDefault();
+    btn.classList.remove("on");
+    up();
+  };
+  btn.addEventListener("pointerdown", onDown);
+  btn.addEventListener("pointerup", onUp);
+  btn.addEventListener("pointercancel", onUp);
+  btn.addEventListener("lostpointercapture", onUp);
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
 function wirePad() {
   document.querySelectorAll("#pad .key").forEach((btn) => {
     const name = btn.dataset.key;
-    const down = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not critical */ }
-      btn.classList.add("on");
-      sendInput(name, true);
-    };
-    const up = (e) => {
-      e.preventDefault();
-      btn.classList.remove("on");
-      sendInput(name, false);
-    };
-    btn.addEventListener("pointerdown", down);
-    btn.addEventListener("pointerup", up);
-    btn.addEventListener("pointercancel", up);
-    btn.addEventListener("lostpointercapture", up);
-    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+    bindHold(btn, () => sendInput(name, true), () => sendInput(name, false));
+  });
+}
+
+function wireKeyboard() {
+  document.querySelectorAll("#kbd .key").forEach((btn) => {
+    const sc = Number(btn.dataset.sc);
+    const tag = "kbd:" + btn.textContent.trim().replace(/\s+/g, "");
+    bindHold(btn, () => sendScancode(tag, sc, true),
+                   () => sendScancode(tag, sc, false));
   });
 }
 
@@ -716,6 +993,8 @@ function wireSnapshots() {
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
   wirePad();
+  wireKeyboard();
+  wireModeButton();
   wireSnapshots();
 
   // Physical keyboard: listen on the window so it works whatever has focus,

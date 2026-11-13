@@ -22,6 +22,10 @@ Licensed under the [GNU General Public License v3.0](LICENSE).
   Emscripten (`scripts/build_web.sh`), and a self-contained web shell
   (`web/index.html`) runs it on a canvas with Web Audio. Ready to deploy to
   Cloudflare Pages.
+- **Task 8 — the second machine.** The **NEC PC-9801 / PC-9821** core (NP2kai,
+  from WebNP2) is integrated as `plugins/pc98`, alongside the FM Towns core in
+  the same WebAssembly build. The web shell adds a floating **🎮 ⇄ ⌨️** switch
+  between a virtual gamepad and a virtual PC-98 keyboard.
 
 ## Architecture
 
@@ -112,8 +116,14 @@ plugins/fmtowns/
   gt_compat.cpp           provides symbols Geartowns' desktop app supplies
   vendor/Geartowns/       git submodule (the emulator)
   CMakeLists.txt
+plugins/pc98/
+  PC98Engine.{hpp,cpp}    NP2kai-backed PC-9801 / PC-9821 core
+  pc98_plugin.cpp         create_pc98_engine + (desktop) create_engine aliases
+  pc98_plugin.hpp         factory declarations for the static (web) link
+  vendor/NP2kai/          git submodule (NP2kai, Libretro frontend)
+  CMakeLists.txt
 web/
-  index.html          the browser shell (canvas, drag & drop, touch pad)
+  index.html          the browser shell (canvas, touch pad, PC-98 keyboard)
   _headers            COOP/COEP + MIME headers for Cloudflare Pages
 scripts/
   build_web.sh        Emscripten build -> web/dist
@@ -145,6 +155,43 @@ FM Towns needs the machine ROM set (`FMT_SYS.ROM`, `FMT_DOS.ROM`, `FMT_FNT.ROM`,
 These are copyrighted and are **not** distributed here; without them `init()`
 fails cleanly with a message. Media images (CHD, CUE/BIN, ISO, floppy) load
 after a successful init.
+
+## PC-98 plugin (NP2kai)
+
+`plugins/pc98` adapts [NP2kai](https://github.com/AZO234/NP2kai) — the Neko
+Project II fork that [WebNP2](https://github.com/uraraworks/WebNP2) uses — to
+`IEngineCore`. Only the emulation core and its Libretro shim are compiled; the
+Libretro frontend and the menu shell are left out, so the plugin has no GUI or
+SDL dependency of its own.
+
+Fetch the submodule the same way as FM Towns:
+
+```sh
+git submodule update --init --recursive
+```
+
+If it is missing, configuration still succeeds and CMake skips the plugin.
+
+Unlike the FM Towns core, the PC-98 core boots from its **built-in BIOS I/O
+emulation**, so it renders and produces sound with no external ROM at all
+(`BIOS_IO_EMULATION`). Point `--bios` at a PC-98 ROM set for a full boot. The
+`PC98Engine` implements the full `IEngineCore` surface:
+
+| Method | Behaviour |
+| --- | --- |
+| `init(system, bios)` | boot the NP2kai core; `bios` selects the ROM directory |
+| `load_media(path)` | mount `.d88` / `.fdi` / `.hdi` / `.nhd` / `.iso` images |
+| `step_frame()` | run one frame (`retro_run` → `np2_main`) |
+| `get_framebuffer()` | 640×400 XRGB8888, converted from the core's output |
+| `get_audio_samples()` | 44.1 kHz stereo OPNA / FM samples |
+| `send_input(key, pressed)` | map `asuka::Key` to PC-98 scan codes |
+| `send_scancode(code, pressed)` | inject a raw PC-98 scan code directly |
+| `save_snapshot()` / `load_snapshot()` | NP2kai state + BMP thumbnail |
+
+The raw-scancode entry point is what the virtual keyboard uses for keys the
+small `asuka::Key` set cannot express (`HELP`, `STOP`, `ROLL UP/DOWN`, `F1`-`F5`).
+Scan codes follow the PC-98 hardware layout (see `keystat.h` in the submodule),
+not PC/AT: for example `HELP` is `0x3f`, `STOP` is `0x60`, `RETURN` is `0x1c`.
 
 ## Build
 
@@ -188,6 +235,8 @@ On Debian/Ubuntu install `libsdl2-dev`.
 | `--media <path>` | media image (CHD, CUE/BIN, ISO, floppy) |
 | `--frames <N>` | frames to run (default 60) |
 | `--dump-frame <path>` | write the final frame to a binary PPM (P6) |
+| `--press <frame>:<key>` | press a host key (`asuka::Key`) at that frame |
+| `--press-scancode <frame>:<code>` | press a core-native scancode at that frame |
 | `--save-snapshot <path>` | save a machine snapshot after the last frame |
 | `--load-snapshot <path>` | load a machine snapshot before the first frame |
 
@@ -252,11 +301,35 @@ mid-session.
 
 ## Web (WebAssembly + Cloudflare Pages)
 
-The same FM Towns core builds to a single WebAssembly module with Emscripten,
-and `web/index.html` is a self-contained shell that runs it on a `<canvas>` with
-Web Audio, keyboard/gamepad input and an on-screen touch pad. There is no
-`dlopen` on the web: the engine is linked straight into the module and the shell
-calls a small C API (`asuka_web_init`, `asuka_web_start`, …).
+Both cores — FM Towns and PC-98 — build into a single WebAssembly module with
+Emscripten, and `web/index.html` is a self-contained shell that runs either one
+on a `<canvas>` with Web Audio, keyboard/gamepad input and an on-screen touch
+pad. There is no `dlopen` on the web: the engines are linked straight into the
+module and the shell calls a small C API (`asuka_web_init`, `asuka_web_start`,
+…). The engine is chosen at runtime:
+
+```js
+// third argument to asuka_web_init; "fmtowns" is the default.
+asuka_web_init("/bios", "/media/disc.iso", "pc98");
+```
+
+The shell takes the machine from `?machine=pc98` in the URL, falling back to the
+`machine` field in `assets/manifest.json`, then to FM Towns.
+
+### Dual touch input (gamepad ⇄ PC-98 keyboard)
+
+A floating **🎮 ⇄ ⌨️** button (top-left, shown on touch devices and on PC-98)
+swaps the on-screen controls between two modes:
+
+- **Gamepad** — the D-pad plus A/B, for pad-driven arcade games.
+- **PC-98 keyboard** — a compact virtual keyboard: the standard rows
+  (Q-P, A-L, Z-M, digits, Space, Return) plus the PC-98 utility keys `HELP`,
+  `STOP`, `ROLL UP`, `ROLL DOWN` and `F1`-`F5`.
+
+Gamepad keys go through `asuka_web_key` (the `asuka::Key` set); keyboard keys go
+through `asuka_web_scancode`, which injects the raw PC-98 scan code so the
+utility keys work. A physical keyboard also types into the PC-98 when the
+machine is PC-98. Held keys are released on every mode switch, so nothing sticks.
 
 ### Prerequisites
 
@@ -311,8 +384,10 @@ ctest --test-dir build --output-on-failure
 
 The suite covers the dummy plugin through the headless runner (`asuka_smoke`),
 the audio capture path (`asuka_audio_capture`), the FM Towns plugin load
-(`asuka_fmtowns_loads`), and — when SDL2 is present — the interactive runner's
-whole loop driven headlessly with SDL's dummy video/audio backends
+(`asuka_fmtowns_loads`), the FM Towns snapshot round-trip (`asuka_snapshot`), and
+the PC-98 engine (`asuka_pc98`: boot, render, audio, snapshot round-trip and raw
+scancode input). When SDL2 is present, the interactive runner's whole loop is
+also driven headlessly with SDL's dummy video/audio backends
 (`asuka_play_headless`).
 
 ## Live boot verification

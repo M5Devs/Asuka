@@ -159,6 +159,21 @@ if(ASUKA_BUILD_FMTOWNS)
     endif()
 endif()
 
+# PC-98 / PC-9821 engine (NP2kai). Enabled only when the vendored core is
+# present so a plain checkout still configures; see plugins/pc98/CMakeLists.
+# On the web build this contributes the static engine instead of the shared
+# plugin.
+option(ASUKA_BUILD_PC98 "Build the PC-98 (NP2kai) engine" ON)
+if(ASUKA_BUILD_PC98)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pc98/vendor/NP2kai/sdl/libretro/libretro.c")
+        add_subdirectory(plugins/pc98)
+    else()
+        message(WARNING
+            "PC-98 engine skipped: NP2kai submodule not initialised. "
+            "Run: git submodule update --init --recursive")
+    endif()
+endif()
+
 # ---------------------------------------------------------------------------
 # Web target (Emscripten + SDL2).
 #
@@ -177,9 +192,15 @@ if(ASUKA_BUILD_WEB)
     target_link_libraries(asuka_web PRIVATE
         asuka_fmtowns_static asuka_warnings)
 
+    if(TARGET asuka_pc98_static)
+        target_link_libraries(asuka_web PRIVATE asuka_pc98_static)
+        target_compile_definitions(asuka_web PRIVATE ASUKA_WEB_HAS_PC98=1)
+    endif()
+
     target_include_directories(asuka_web PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/fmtowns")
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/fmtowns"
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pc98")
 
     # -sUSE_SDL=2 must be set at compile time too, so <SDL.h> resolves to the
     # Emscripten SDL2 port header (otherwise it hits the fakesdl stub).
@@ -271,5 +292,15 @@ if(NOT ASUKA_BUILD_WEB)
                     --frames 120 --headless)
         set_tests_properties(asuka_play_headless PROPERTIES
             ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+    endif()
+
+    # PC-98 (NP2kai): boots from built-in BIOS I/O emulation, so it needs no
+    # copyrighted assets and always runs. Covers rendering, audio, snapshot
+    # round-trip and the raw-scancode input path.
+    if(TARGET asuka_pc98)
+        add_test(NAME asuka_pc98
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/pc98_test.sh"
+                    "$<TARGET_FILE:asuka_runner>"
+                    "$<TARGET_FILE:asuka_pc98>")
     endif()
 endif()

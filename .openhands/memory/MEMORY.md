@@ -109,8 +109,8 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   `--use-gl=swiftshader`) loads real BIOS + After Burner, boots, renders at
   **~57 fps** (717 frames/12 s, cross-origin isolated, 88 palette colours).
 
-## Standalone web deploy (`m5dev-tests/asukatest`) — 2026-11-13
-- The static site is deployed to a **separate repo**, `m5dev-tests/asukatest`
+## Standalone web deploy (`<secret-hidden>-tests/asukatest`) — 2026-11-13
+- The static site is deployed to a **separate repo**, `<secret-hidden>-tests/asukatest`
   (was LICENSE+README only; push straight to `main`). The current Asuka source
   lives in *another* workspace; the deploy target is a near-empty repo cloned
   for this purpose.

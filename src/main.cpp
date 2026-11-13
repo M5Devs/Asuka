@@ -40,6 +40,10 @@ struct Options {
     // (frame, key_code) pairs: the key is pressed at that frame and released a
     // few frames later. Used to drive a boot menu or skip an intro.
     std::vector<std::pair<int, uint32_t>> presses;
+    // (frame, scancode) pairs fed through send_scancode() instead of
+    // send_input(); for core-native keys (e.g. PC-98) the asuka::Key set
+    // cannot express.
+    std::vector<std::pair<int, int>> scancodes;
     // Save a snapshot after the run finishes / load one before it starts.
     std::string save_snapshot;
     std::string load_snapshot;
@@ -70,6 +74,10 @@ void print_usage(const char* argv0) {
         "                        it a few frames later. <key> is one of: up, down,\n"
         "                        left, right, start, select, a, b, x, y, l, r.\n"
         "                        Repeatable.\n"
+        "  --press-scancode <frame>:<code>\n"
+        "                        press a core-native scancode at <frame> and release\n"
+        "                        it a few frames later. <code> is decimal or 0x-prefixed\n"
+        "                        hex (e.g. PC-98 HELP = 0x3f). Repeatable.\n"
         "  --load-snapshot <p>   load a snapshot before running frames\n"
         "  --save-snapshot <p>   save a snapshot after the frames finish\n"
         "  -h, --help            show this help\n"
@@ -165,6 +173,23 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
                 return false;
             }
             opts.presses.emplace_back(frame, static_cast<uint32_t>(key));
+        } else if (arg == "--press-scancode") {
+            std::string spec;
+            if (!take_value(argc, argv, i, spec)) return false;
+            const size_t colon = spec.find(':');
+            if (colon == std::string::npos) {
+                std::fprintf(stderr, "error: --press-scancode wants <frame>:<code>\n");
+                return false;
+            }
+            const int frame = std::atoi(spec.substr(0, colon).c_str());
+            const int code = static_cast<int>(
+                std::strtol(spec.substr(colon + 1).c_str(), nullptr, 0));
+            if (frame < 0 || code < 0) {
+                std::fprintf(stderr, "error: bad --press-scancode value '%s'\n",
+                             spec.c_str());
+                return false;
+            }
+            opts.scancodes.emplace_back(frame, code);
         } else if (!arg.empty() && arg[0] == '-') {
             std::fprintf(stderr, "error: unknown option '%s'\n", arg.c_str());
             return false;
@@ -388,6 +413,13 @@ int run(const Options& opts) {
                 engine->send_input(press.second, true);
             } else if (press.first >= 0 && frame == press.first + 4) {
                 engine->send_input(press.second, false);
+            }
+        }
+        for (const auto& press : opts.scancodes) {
+            if (press.first == frame) {
+                engine->send_scancode(press.second, true);
+            } else if (press.first >= 0 && frame == press.first + 4) {
+                engine->send_scancode(press.second, false);
             }
         }
 

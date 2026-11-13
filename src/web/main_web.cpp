@@ -21,6 +21,9 @@
 #include "asuka/Input.hpp"
 
 #include "fmtowns_plugin.hpp"
+#if defined(ASUKA_WEB_HAS_PC98)
+#include "pc98_plugin.hpp"
+#endif
 
 #include <SDL.h>
 #include <emscripten.h>
@@ -64,6 +67,9 @@ struct WebState {
     long long frames = 0;
     unsigned long long input_events = 0;
     unsigned prev_dirs = 0;
+    // Which engine the shell asked for ("fmtowns" or "pc98"); kept so the
+    // matching destroy function is called on shutdown.
+    std::string machine;
     std::string last_error;
 
     // Scratch buffer holding the BMP thumbnail most recently requested by the
@@ -287,6 +293,35 @@ std::string snapshot_thumb_path(int slot) {
     return std::string(kSnapshotDir) + "/slot" + std::to_string(slot) + ".bmp";
 }
 
+// The shell picks the machine by name; FM Towns is the default so existing
+// links keep working.
+bool is_pc98(const std::string& name) {
+    return name == "pc98" || name == "pc-98" || name == "pc9821" ||
+           name == "np2" || name == "np2kai";
+}
+
+// Allocate the engine the shell asked for. The PC-98 core is only compiled in
+// when the NP2kai submodule is present.
+asuka::IEngineCore* create_selected_engine(const std::string& name) {
+#if defined(ASUKA_WEB_HAS_PC98)
+    if (is_pc98(name)) {
+        return create_pc98_engine();
+    }
+#endif
+    return create_engine();
+}
+
+void destroy_selected_engine(asuka::IEngineCore* engine, const std::string& name) {
+#if defined(ASUKA_WEB_HAS_PC98)
+    if (is_pc98(name)) {
+        destroy_pc98_engine(engine);
+        return;
+    }
+#endif
+    (void)name;
+    destroy_engine(engine);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -296,14 +331,18 @@ std::string snapshot_thumb_path(int slot) {
 extern "C" {
 
 // Initialise the engine and open the canvas/audio. `bios_dir` is the directory
-// holding the firmware ROMs; `media_path` is a file inside the virtual FS.
+// holding the firmware ROMs; `media_path` is a file inside the virtual FS;
+// `machine` selects the engine ("fmtowns", the default, or "pc98").
 // Returns 1 on success, 0 on failure (see asuka_web_last_error()).
 EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
-                                        const char* media_path) {
+                                        const char* media_path,
+                                        const char* machine) {
     if (g_state.engine != nullptr) {
         set_error("already initialised");
         return 0;
     }
+
+    g_state.machine = machine != nullptr ? machine : "";
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER |
                  SDL_INIT_EVENTS) != 0) {
@@ -344,7 +383,7 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
         }
     }
 
-    g_state.engine = create_engine();
+    g_state.engine = create_selected_engine(g_state.machine);
     if (g_state.engine == nullptr) {
         set_error("engine allocation failed");
         return 0;
@@ -354,7 +393,7 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
     if (!g_state.engine->init("", bios)) {
         set_error("engine init() failed (missing or invalid BIOS?)");
         g_state.engine->shutdown();
-        destroy_engine(g_state.engine);
+        destroy_selected_engine(g_state.engine, g_state.machine);
         g_state.engine = nullptr;
         return 0;
     }
@@ -363,7 +402,7 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
         if (!g_state.engine->load_media(media_path)) {
             set_error(std::string("load_media() failed: ") + media_path);
             g_state.engine->shutdown();
-            destroy_engine(g_state.engine);
+            destroy_selected_engine(g_state.engine, g_state.machine);
             g_state.engine = nullptr;
             return 0;
         }
@@ -410,6 +449,22 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_key(uint32_t key, int pressed) {
         g_state.engine->send_input(key, pressed != 0);
     }
     g_state.input_events++;
+}
+
+// Feed a core-native raw key code (PC-98 scancode), for the virtual PC-98
+// keyboard overlay's keys the asuka::Key set cannot express. Ignored by cores
+// without the concept.
+EMSCRIPTEN_KEEPALIVE void asuka_web_scancode(int scancode, int pressed) {
+    if (g_state.engine != nullptr) {
+        g_state.engine->send_scancode(scancode, pressed != 0);
+    }
+    g_state.input_events++;
+}
+
+// Which engine is running ("fmtowns" or "pc98"); lets the shell pick the right
+// on-screen controls.
+EMSCRIPTEN_KEEPALIVE int asuka_web_is_pc98() {
+    return is_pc98(g_state.machine) ? 1 : 0;
 }
 
 // Number of key events accepted since init (diagnostics / test hook).
@@ -515,7 +570,7 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_shutdown() {
 
     if (g_state.engine != nullptr) {
         g_state.engine->shutdown();
-        destroy_engine(g_state.engine);
+        destroy_selected_engine(g_state.engine, g_state.machine);
         g_state.engine = nullptr;
     }
     if (g_state.pad != nullptr) {

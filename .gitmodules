@@ -1,3 +1,7 @@
 [submodule "plugins/fmtowns/vendor/Geartowns"]
 	path = plugins/fmtowns/vendor/Geartowns
 	url = https://github.com/drhelius/Geartowns
+[submodule "plugins/pc98/vendor/NP2kai"]
+	path = plugins/pc98/vendor/NP2kai
+	url = https://github.com/uraraworks/NP2kai-wasm
+	branch = wasm
