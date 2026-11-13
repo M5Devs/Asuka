@@ -103,4 +103,41 @@ GPLv3. `LICENSE` pre-existing; `README.md` rewritten in Task 1.
   `git push "https://${GITHUB_TOKEN}@github.com/M5Devs/Asuka.git" main`.
 - `origin` = `https://github.com/M5Devs/Asuka.git`; branch `main`. Commits:
   `04eb868` (initial, grafted), `ab9c6d0` (foundation), `bc3514a` (memory),
-  `b7cb447` (FM Towns plugin).
+  `b7cb447` (FM Towns plugin), `ae69347` (memory), `63df591` (audio fix + boot
+  verification).
+
+## Task 3 — live boot verification (Geartowns), verified end-to-end
+- **Audio buffer overflow (real bug the dummy never hit).** Our destination PCM
+  buffer was sized from a per-frame estimate (`2*(rate/fps+512)` ≈ 2494 shorts).
+  Geartowns accumulates a whole frame into a buffer capped at
+  **`GT_AUDIO_BUFFER_SIZE` (8192, `src/common/defines.h`)** and `Audio::EndFrame`
+  copies the *entire* `m_buffer_index` out, so the copy overran us whenever the
+  audio clock ran ahead of the video clock → heap corruption → `free(): invalid
+  pointer` **at teardown** (after all frames had already run). Fix: size the
+  buffer to `GT_AUDIO_BUFFER_SIZE`. Found with ASan (heap-buffer-overflow in
+  `Audio::EndFrame`, audio.cpp:696). Symptom lesson: a crash *after* "OK" frames
+  is still a real bug; don't dismiss it as a shutdown quirk.
+- **Test assets** (copyrighted → git-ignored `test_assets/`, scripts added):
+  - BIOS: `Abdess/retrobios`, path **`bios/Fujitsu/FM Towns/`** (sparse clone
+    works: `git clone --depth 1 --filter=blob:none --sparse` then
+    `git sparse-checkout set --no-cone '/bios/Fujitsu/FM Towns/*'`). Note the
+    top-level dir is `bios/`, not `fmtowns/` or `fujitsu/`.
+  - Media: archive.org item **`fmtownscdcollection`**, file
+    `FM-Towns CD/Afterburner (1987)(Sega)(Jp-En).zip` (204 MB) → CUE + BIN
+    (230 MB, Mode1/2352 data track + 7 audio tracks).
+  - Helpers: `scripts/fetch_test_assets.sh` (fetch) and
+    `scripts/verify_fmtowns_boot.sh` (boot + assert non-blank frame).
+- **ROM set identity matters.** The retrobios `FMT_SYS.ROM` (crc32 `afe4ebcf`)
+  is the **`fmtownsftv` / "V10"** set, *not* the Model 1/2 `fmtowns` set
+  (`k_firmware_sets` in `src/media/firmware.h`). Geartowns still auto-selects a
+  working model from the loaded set, so boot succeeds, but the machine is a
+  "FM Towns II Fresh TV". `FMT_DOS.ROM` is shared across sets.
+- **Boot progression with a real BIOS + After Burner** (frame → mode):
+  ~0-500 → 640×480 (POST), ~500-1400 → 640×400 (boot menu / text, 8 colours),
+  ~1500+ → **320×240** (game's native mode, 733 distinct colours, ~6% of pixels
+  change per 60 frames → live animation; the rendered title/shape is visible).
+  The resolution change 640×480→640×400→320×240 is the machine programming its
+  CRTC, i.e. real emulation, not a static buffer.
+- Verified: clean release rebuild 0 warnings, `ctest` 2/2, ASan/LSan clean over
+  a 600-frame real boot (exit 0, no leaks), verification script PASS
+  (`733 colours`, `72% non-black ink`).
