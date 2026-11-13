@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <fstream>
 
 namespace asuka::plugins::dummy {
 
@@ -112,6 +113,38 @@ const int16_t* DummyEngine::get_audio_samples(size_t& sample_count) {
 void DummyEngine::send_input(uint32_t key_code, bool pressed) {
     last_key_ = key_code;
     last_key_pressed_ = pressed;
+}
+
+// The dummy has no machine to serialise, so a snapshot is just the frame
+// counter, written as a small binary blob. It exists so the snapshot ABI is
+// exercised end to end (host -> plugin -> filesystem) without an emulator.
+bool DummyEngine::save_snapshot(const std::string& filepath) {
+    if (!initialized_ || filepath.empty()) {
+        return false;
+    }
+    std::ofstream out(filepath, std::ios::binary);
+    if (!out) {
+        return false;
+    }
+    out.write(reinterpret_cast<const char*>(&frame_counter_), sizeof(frame_counter_));
+    return out.good();
+}
+
+bool DummyEngine::load_snapshot(const std::string& filepath) {
+    if (!initialized_ || filepath.empty()) {
+        return false;
+    }
+    std::ifstream in(filepath, std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    uint64_t counter = 0;
+    in.read(reinterpret_cast<char*>(&counter), sizeof(counter));
+    if (!in) {
+        return false;
+    }
+    frame_counter_ = counter;
+    return true;
 }
 
 void DummyEngine::reset() {

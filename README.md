@@ -188,12 +188,25 @@ On Debian/Ubuntu install `libsdl2-dev`.
 | `--media <path>` | media image (CHD, CUE/BIN, ISO, floppy) |
 | `--frames <N>` | frames to run (default 60) |
 | `--dump-frame <path>` | write the final frame to a binary PPM (P6) |
+| `--save-snapshot <path>` | save a machine snapshot after the last frame |
+| `--load-snapshot <path>` | load a machine snapshot before the first frame |
 
 A plugin path may also be given positionally, or via `ASUKA_PLUGIN_PATH`.
 
 The runner loads the plugin, initialises it, runs the requested frames while
 reporting the framebuffer size and audio sample count, then tears everything
 down and unloads the library.
+
+### Save states and thumbnails
+
+An engine that supports snapshots saves the whole machine — CPU, RAM, video,
+audio and media position — to a single file, and writes a matching preview
+beside it. The FM Towns plugin writes a 24-bit BMP next to the state file (same
+name, `.bmp` extension) so a front-end can show a thumbnail without decoding the
+state. The BMP is written from the current framebuffer, so save after the frame
+you want to preview. Snapshots are validated end to end by
+`tests/snapshot_test.sh`, which also checks that resuming from a state
+reproduces the exact frame a straight run would have produced.
 
 ## Interactive runner (`asuka_play`)
 
@@ -220,11 +233,12 @@ game can actually be played.
 | `--no-integer-scale` | allow fractional scaling instead of integers |
 | `--headless` | no window; still runs the loop and audio |
 | `--no-audio` | do not open an audio device |
+| `--snapshot <path>` | state file for the F5/F8 snapshot keys (default `<media>.state`) |
 
 Controls: arrow keys are the d-pad, **Enter** is Start, **Space/Z/X/C** are the
-fire buttons, **R** resets, **F11** toggles fullscreen and **Esc** quits. A
-connected game controller is picked up automatically (d-pad, left stick, face
-buttons, shoulders).
+fire buttons, **R** resets, **F11** toggles fullscreen, **F5** saves a snapshot,
+**F8** loads it, and **Esc** quits. A connected game controller is picked up
+automatically (d-pad, left stick, face buttons, shoulders).
 
 The host pulls one frame at a time and paces the loop to the audio clock: it
 queues each frame's PCM and sleeps only while the device buffer is fuller than

@@ -40,6 +40,9 @@ struct Options {
     // (frame, key_code) pairs: the key is pressed at that frame and released a
     // few frames later. Used to drive a boot menu or skip an intro.
     std::vector<std::pair<int, uint32_t>> presses;
+    // Save a snapshot after the run finishes / load one before it starts.
+    std::string save_snapshot;
+    std::string load_snapshot;
 };
 
 // Audio format of the engine interface: interleaved stereo s16.
@@ -67,6 +70,8 @@ void print_usage(const char* argv0) {
         "                        it a few frames later. <key> is one of: up, down,\n"
         "                        left, right, start, select, a, b, x, y, l, r.\n"
         "                        Repeatable.\n"
+        "  --load-snapshot <p>   load a snapshot before running frames\n"
+        "  --save-snapshot <p>   save a snapshot after the frames finish\n"
         "  -h, --help            show this help\n"
         "\n"
         "If --plugin is omitted, a positional plugin path is used, then\n"
@@ -141,6 +146,10 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
             if (!take_value(argc, argv, i, opts.dump_audio)) return false;
         } else if (arg == "--dump-audio-frames") {
             if (!take_value(argc, argv, i, opts.dump_audio_frames)) return false;
+        } else if (arg == "--save-snapshot") {
+            if (!take_value(argc, argv, i, opts.save_snapshot)) return false;
+        } else if (arg == "--load-snapshot") {
+            if (!take_value(argc, argv, i, opts.load_snapshot)) return false;
         } else if (arg == "--press") {
             std::string spec;
             if (!take_value(argc, argv, i, spec)) return false;
@@ -331,6 +340,11 @@ int run(const Options& opts) {
         return EXIT_FAILURE;
     }
 
+    if (!opts.load_snapshot.empty() && !engine->load_snapshot(opts.load_snapshot)) {
+        std::fprintf(stderr, "error: engine load_snapshot() failed\n");
+        return EXIT_FAILURE;
+    }
+
     int width = 0;
     int height = 0;
     size_t audio_samples = 0;
@@ -442,6 +456,14 @@ int run(const Options& opts) {
     std::printf("  framebuffer     : %dx%d XRGB8888\n", width, height);
     std::printf("  audio buffer    : %s (%zu samples/channel)\n",
                 audio_seen ? "present" : "empty", audio_samples);
+
+    if (!opts.save_snapshot.empty()) {
+        if (!engine->save_snapshot(opts.save_snapshot)) {
+            std::fprintf(stderr, "error: engine save_snapshot() failed\n");
+            return EXIT_FAILURE;
+        }
+        std::printf("  saved snapshot  : %s\n", opts.save_snapshot.c_str());
+    }
 
     if (!opts.dump_audio.empty()) {
         wav.close();

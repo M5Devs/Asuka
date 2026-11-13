@@ -179,6 +179,86 @@
     letter-spacing: .18em;
   }
   #pad .start.on { transform: translateX(-50%) scale(.94); }
+
+  /* ---- Snapshot bar: save / load state with a visual thumbnail ---- */
+  #snapbar {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(10px + env(safe-area-inset-right));
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 12px;
+    background: rgba(10, 10, 12, 0.42);
+    border: 1px solid var(--edge);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    opacity: .82;
+    transition: opacity .15s ease;
+  }
+  #snapbar:hover, #snapbar:focus-within { opacity: 1; }
+
+  #snapbar button {
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    display: flex; align-items: center; gap: 5px;
+    padding: 7px 11px;
+    border-radius: 9px;
+    border: 1px solid var(--edge);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: .04em;
+    cursor: pointer;
+    transition: background .1s ease, transform .06s ease;
+  }
+  #snapbar button:hover { background: rgba(255, 255, 255, 0.18); }
+  #snapbar button:active { transform: scale(.95); }
+
+  /* The preview doubles as the LOAD target. */
+  #snap-thumb {
+    width: 64px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 7px;
+    border: 1px solid var(--edge);
+    background: rgba(0, 0, 0, 0.55) center / cover no-repeat;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 9px; letter-spacing: .08em;
+    cursor: pointer;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: border-color .1s ease, transform .06s ease;
+  }
+  #snap-thumb.filled { border-color: rgba(255, 255, 255, 0.42); color: transparent; }
+  #snap-thumb:active { transform: scale(.95); }
+
+  /* Transient status toast. */
+  #snap-toast {
+    position: absolute;
+    top: calc(60px + env(safe-area-inset-top));
+    right: calc(10px + env(safe-area-inset-right));
+    z-index: 20;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(10, 10, 12, 0.72);
+    border: 1px solid var(--edge);
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: .04em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+  }
+  #snap-toast.show { opacity: 1; }
+
+  @media (max-width: 420px) {
+    #snapbar button .label { display: none; }
+    #snap-thumb { width: 52px; height: 39px; }
+  }
 </style>
 </head>
 <body>
@@ -192,6 +272,13 @@
     <div class="status" id="loader-status">Preparing…</div>
     <button class="retry" id="loader-retry" hidden>Retry</button>
   </div>
+
+  <div id="snapbar" hidden>
+    <button id="snap-save" title="Save state to slot 1"><span>📷</span><span class="label">SNAP</span></button>
+    <div id="snap-thumb" title="Tap to load slot 1">SLOT 1</div>
+    <button id="snap-load" title="Load state from slot 1"><span>⏪</span><span class="label">LOAD</span></button>
+  </div>
+  <div id="snap-toast"></div>
 </div>
 
 <div id="pad" aria-hidden="true">
@@ -279,6 +366,34 @@ function ensureDir(path) {
   try { FS.mkdir(path); } catch (e) {
     if (e && e.errno !== 20 /* EEXIST */) throw e;
   }
+}
+
+// Mount an IndexedDB-backed filesystem at the snapshot directory so saved
+// states survive a page reload. Existing data is pulled in with syncfs(true).
+// Mounting is best-effort: if IndexedDB is unavailable, snapshots still work
+// for the current session (they just do not persist).
+async function mountSnapshotFS() {
+  const FS = state.Module.FS;
+  // The IDBFS backend is exposed as Module.IDBFS (see EXPORTED_RUNTIME_METHODS
+  // in CMakeLists.txt); FS.filesystems is not part of the exported runtime.
+  const backend = state.Module.IDBFS;
+  if (!backend) {
+    log("snapshot persistence unavailable (no IDBFS backend)", "err");
+    return;
+  }
+  const dir = BIOS_DIR + "/snapshots";
+  ensureDir(BIOS_DIR);
+  ensureDir(dir);
+  try {
+    FS.mount(backend, {}, dir);
+  } catch (e) {
+    if (e && e.errno !== 10 /* EBUSY: already mounted */) {
+      log("snapshot mount failed: " + (e.message || e), "err");
+      return;
+    }
+  }
+  await new Promise((resolve) => FS.syncfs(true, () => resolve()));
+  log("snapshot storage mounted at " + dir, "ok");
 }
 
 async function fetchToFS(url, dir, name, onBytes) {
@@ -395,6 +510,7 @@ async function autoBoot() {
 
     await waitForIsolation(6000);
     await loadModule();
+    try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
 
     // Prefer the manifest's exact byte sizes: some hosts report a compressed
     // content-length on HEAD that does not match the decoded body we stream.
@@ -437,6 +553,9 @@ async function autoBoot() {
     loaderDone();
     el("canvas").focus();
     if (isTouchDevice()) el("pad").classList.add("show");
+    el("snapbar").hidden = false;
+    // Show any thumbnail restored from IndexedDB on a previous visit.
+    refreshThumbnail();
     log("running (auto-boot)", "ok");
     return true;
   } catch (e) {
@@ -461,6 +580,8 @@ const SCAN_TO_KEY = {
 
 function onKey(e, on) {
   if (on && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
+  if (on && e.code === "F2") { saveSnapshot(); e.preventDefault(); return; }
+  if (on && e.code === "F4") { loadSnapshot(); e.preventDefault(); return; }
   if (on && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
   const name = SCAN_TO_KEY[e.code];
   if (name) { if (!e.repeat || !on) sendInput(name, on); e.preventDefault(); }
@@ -499,10 +620,103 @@ function wirePad() {
 }
 
 // ---------------------------------------------------------------------------
+// Visual snapshots: save/load slot 1 with a thumbnail preview.
+//
+// The engine writes /bios/snapshots/slotN.state plus a BMP thumbnail beside
+// it. The thumbnail is turned into a blob URL for the preview; FS.syncfs()
+// flushes both to IndexedDB so they survive a reload.
+// ---------------------------------------------------------------------------
+const SNAP_SLOT = 1;
+let thumbUrl = null;
+
+function snapToast(msg) {
+  const t = el("snap-toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(snapToast._timer);
+  snapToast._timer = setTimeout(() => t.classList.remove("show"), 1400);
+}
+
+// Read the slot's thumbnail BMP from the virtual FS and show it as the
+// preview background. Clears the preview when no thumbnail exists.
+function refreshThumbnail() {
+  const thumb = el("snap-thumb");
+  if (!state.Module) return;
+  const heap = state.Module.HEAPU8;
+  if (!heap) return;  // heap view not exported; skip the preview
+  const ptr = state.Module.ccall("asuka_web_get_snapshot_thumbnail", "number",
+                                 ["number"], [SNAP_SLOT]);
+  const size = state.Module.ccall("asuka_web_snapshot_thumbnail_size", "number",
+                                  [], []);
+
+  if (!ptr || size <= 0) {
+    thumb.classList.remove("filled");
+    thumb.style.backgroundImage = "";
+    thumb.textContent = "SLOT " + SNAP_SLOT;
+    log("slot " + SNAP_SLOT + ": no thumbnail", "err");
+    return;
+  }
+
+  const bytes = new Uint8Array(heap.buffer, ptr, size).slice();
+  const blob = new Blob([bytes], { type: "image/bmp" });
+  if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+  thumbUrl = URL.createObjectURL(blob);
+  thumb.style.backgroundImage = `url(${thumbUrl})`;
+  thumb.classList.add("filled");
+  log("slot " + SNAP_SLOT + ": thumbnail " + size + " bytes", "ok");
+}
+
+function persistFS() {
+  // Flush the in-memory FS to IndexedDB so snapshots survive a refresh.
+  if (state.Module && state.Module.FS && state.Module.FS.syncfs) {
+    state.Module.FS.syncfs(false, (err) => {
+      if (err) log("snapshot persist failed: " + err, "err");
+    });
+  }
+}
+
+function saveSnapshot() {
+  if (!state.Module) return;
+  const ok = state.Module.ccall("asuka_web_save_snapshot", "number",
+                                ["number"], [SNAP_SLOT]);
+  if (!ok) {
+    snapToast("snapshot failed");
+    log("save_snapshot failed", "err");
+    return;
+  }
+  refreshThumbnail();
+  persistFS();
+  snapToast("saved");
+  log("snapshot saved to slot " + SNAP_SLOT, "ok");
+}
+
+function loadSnapshot() {
+  if (!state.Module) return;
+  if (!state.Module.ccall("asuka_web_has_snapshot", "number",
+                          ["number"], [SNAP_SLOT])) {
+    snapToast("no snapshot");
+    return;
+  }
+  const ok = state.Module.ccall("asuka_web_load_snapshot", "number",
+                                ["number"], [SNAP_SLOT]);
+  snapToast(ok ? "loaded" : "load failed");
+  log(ok ? "snapshot loaded from slot " + SNAP_SLOT : "load_snapshot failed",
+      ok ? "ok" : "err");
+}
+
+function wireSnapshots() {
+  el("snap-save").addEventListener("click", (e) => { e.stopPropagation(); saveSnapshot(); });
+  el("snap-load").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(); });
+  // Tapping the preview loads too, mirroring the LOAD button.
+  el("snap-thumb").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(); });
+}
+
+// ---------------------------------------------------------------------------
 // Boot the page.
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
   wirePad();
+  wireSnapshots();
 
   // Physical keyboard: listen on the window so it works whatever has focus,
   // and keep the canvas focused so the SDL2 listener sees the events too.

@@ -30,6 +30,8 @@ public:
     const uint32_t* get_framebuffer(int& width, int& height) override;
     const int16_t* get_audio_samples(size_t& sample_count) override;
     void send_input(uint32_t key_code, bool pressed) override;
+    bool save_snapshot(const std::string& filepath) override;
+    bool load_snapshot(const std::string& filepath) override;
     void reset() override;
     void shutdown() override;
 

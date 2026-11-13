@@ -201,7 +201,8 @@ if(ASUKA_BUILD_WEB)
         -sFORCE_FILESYSTEM=1
         -sMODULARIZE=1
         -sEXPORT_NAME=createAsukaModule
-        -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,ccall,cwrap,UTF8ToString
+        # HEAPU8 lets the shell copy a snapshot thumbnail out of the WASM heap.
+        -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,HEAPU8,callMain,ccall,cwrap,UTF8ToString
         -sENVIRONMENT=web,worker
         # IndexedDB-backed filesystem for the persistent /bios and /media.
         -lidbfs.js)
@@ -248,6 +249,16 @@ if(NOT ASUKA_BUILD_WEB)
         add_test(NAME asuka_fmtowns_loads
             COMMAND asuka_runner --plugin "$<TARGET_FILE:asuka_fmtowns>")
         set_tests_properties(asuka_fmtowns_loads PROPERTIES WILL_FAIL TRUE)
+
+        # Visual snapshots: save/load a state with a BMP thumbnail and check the
+        # state round-trips deterministically. Skips when the FM Towns BIOS or
+        # media image is not present.
+        add_test(NAME asuka_snapshot
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/snapshot_test.sh"
+                    "$<TARGET_FILE:asuka_runner>"
+                    "$<TARGET_FILE:asuka_fmtowns>"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/test_assets/bios"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/test_assets/media/Afterburner (1987)(Sega)(Jp-En).cue")
     endif()
 
     # Drives the dummy engine through the interactive SDL runner's whole loop

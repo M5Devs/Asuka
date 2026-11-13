@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "asuka/IEngineCore.hpp"
 #include "asuka/Input.hpp"
@@ -29,6 +30,10 @@ namespace {
 // Engine audio format (see IEngineCore): interleaved stereo s16 at 44100 Hz.
 constexpr int kAudioSampleRate = 44100;
 constexpr int kAudioChannels = 2;
+
+// Snapshot slots live under /bios so the IDBFS mount persists them across
+// browser reloads (the shell syncs the filesystem after each save).
+constexpr const char* kSnapshotDir = "/bios/snapshots";
 
 // How much audio to keep queued ahead of playback. Enough to ride out frame
 // jitter, small enough that video and sound stay together.
@@ -60,6 +65,11 @@ struct WebState {
     unsigned long long input_events = 0;
     unsigned prev_dirs = 0;
     std::string last_error;
+
+    // Scratch buffer holding the BMP thumbnail most recently requested by the
+    // shell (asuka_web_get_snapshot_thumbnail). Kept alive until the next call
+    // so the returned pointer stays valid while JavaScript reads it.
+    std::vector<uint8_t> thumbnail;
 };
 
 WebState g_state;
@@ -267,6 +277,16 @@ SDL_AudioDeviceID open_audio() {
     return device;
 }
 
+// Slot paths: slots are 1-based; the state file is "slotN.state" and the
+// visual thumbnail "slotN.bmp", both under the persistent snapshot directory.
+std::string snapshot_state_path(int slot) {
+    return std::string(kSnapshotDir) + "/slot" + std::to_string(slot) + ".state";
+}
+
+std::string snapshot_thumb_path(int slot) {
+    return std::string(kSnapshotDir) + "/slot" + std::to_string(slot) + ".bmp";
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -395,6 +415,86 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_key(uint32_t key, int pressed) {
 // Number of key events accepted since init (diagnostics / test hook).
 EMSCRIPTEN_KEEPALIVE int asuka_web_input_events() {
     return static_cast<int>(g_state.input_events);
+}
+
+// Save the current machine state to slot N, plus a BMP thumbnail beside it.
+// The shell must call FS.syncfs() afterwards to persist to IndexedDB.
+EMSCRIPTEN_KEEPALIVE int asuka_web_save_snapshot(int slot) {
+    if (g_state.engine == nullptr || slot < 1) {
+        set_error("save_snapshot: no engine / bad slot");
+        return 0;
+    }
+    if (!g_state.engine->save_snapshot(snapshot_state_path(slot))) {
+        set_error("save_snapshot failed");
+        return 0;
+    }
+    return 1;
+}
+
+// Restore slot N. Returns 1 on success, 0 on failure.
+EMSCRIPTEN_KEEPALIVE int asuka_web_load_snapshot(int slot) {
+    if (g_state.engine == nullptr || slot < 1) {
+        set_error("load_snapshot: no engine / bad slot");
+        return 0;
+    }
+    if (!g_state.engine->load_snapshot(snapshot_state_path(slot))) {
+        set_error("load_snapshot failed");
+        return 0;
+    }
+    return 1;
+}
+
+// Read slot N's thumbnail BMP into the scratch buffer and return a pointer to
+// it (0 when there is no thumbnail). The byte count is published through
+// asuka_web_snapshot_thumbnail_size(); the pointer is owned by the host and
+// valid until the next call.
+EMSCRIPTEN_KEEPALIVE const uint8_t* asuka_web_get_snapshot_thumbnail(int slot) {
+    g_state.thumbnail.clear();
+    if (slot < 1) {
+        return nullptr;
+    }
+
+    // Emscripten's std::ifstream reads the virtual FS transparently.
+    std::FILE* file = std::fopen(snapshot_thumb_path(slot).c_str(), "rb");
+    if (file == nullptr) {
+        return nullptr;
+    }
+    std::fseek(file, 0, SEEK_END);
+    const long size = std::ftell(file);
+    std::fseek(file, 0, SEEK_SET);
+    if (size <= 0) {
+        std::fclose(file);
+        return nullptr;
+    }
+    g_state.thumbnail.resize(static_cast<size_t>(size));
+    const size_t read = std::fread(g_state.thumbnail.data(), 1,
+                                   g_state.thumbnail.size(), file);
+    std::fclose(file);
+    if (read != g_state.thumbnail.size()) {
+        g_state.thumbnail.clear();
+        return nullptr;
+    }
+    return g_state.thumbnail.data();
+}
+
+// Byte count of the buffer returned by the last
+// asuka_web_get_snapshot_thumbnail() call (0 when there was no thumbnail).
+EMSCRIPTEN_KEEPALIVE int asuka_web_snapshot_thumbnail_size() {
+    return static_cast<int>(g_state.thumbnail.size());
+}
+
+// Report whether a slot has a saved state on disk (drives the UI's "filled"
+// thumbnail state after a reload).
+EMSCRIPTEN_KEEPALIVE int asuka_web_has_snapshot(int slot) {
+    if (slot < 1) {
+        return 0;
+    }
+    std::FILE* file = std::fopen(snapshot_state_path(slot).c_str(), "rb");
+    if (file == nullptr) {
+        return 0;
+    }
+    std::fclose(file);
+    return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE int asuka_web_running() {

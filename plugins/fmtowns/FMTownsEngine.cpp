@@ -1,7 +1,10 @@
 #include "FMTownsEngine.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include "asuka/Input.hpp"
@@ -64,6 +67,21 @@ u16 ToGamePadButton(Key key) {
         case Key::None:   break;
     }
     return 0;
+}
+
+// Sidecar thumbnail path for a state file: swap the extension for ".bmp"
+// ("slot1.state" -> "slot1.bmp", "slot1" -> "slot1.bmp"). The state itself
+// keeps the caller's exact path, so the .state and its .bmp always sit
+// together.
+std::string ThumbnailPath(const std::string& state_path) {
+    std::string path = state_path;
+    const std::string::size_type dot = path.find_last_of('.');
+    const std::string::size_type slash = path.find_last_of("/\\");
+    if (dot != std::string::npos && (slash == std::string::npos || dot > slash)) {
+        path.erase(dot);
+    }
+    path += ".bmp";
+    return path;
 }
 
 }  // namespace
@@ -226,6 +244,110 @@ void FMTownsEngine::send_input(uint32_t key_code, bool pressed) {
     GT_GamePad_State state = {};
     state.buttons = gamepad_buttons_;
     core_->GetInput()->SetGamePadState(GT_CONTROLLER_1, state);
+}
+
+// Serialise the whole machine to `filepath`, then drop a visual thumbnail
+// beside it. Geartowns can embed a screenshot in its own header, but its
+// desktop loader validates `header.size` against the exact file length, so an
+// embedded image that is later stripped would invalidate the state. A sidecar
+// .bmp keeps the state byte-for-byte loadable by both Asuka and Geartowns.
+bool FMTownsEngine::save_snapshot(const std::string& filepath) {
+    if (!initialized_ || filepath.empty()) {
+        return false;
+    }
+    // index -1 with an explicit path: Geartowns uses the path verbatim.
+    if (!core_->SaveState(filepath.c_str(), -1, false)) {
+        std::fprintf(stderr, "asuka/fmtowns: cannot save snapshot '%s'\n",
+                     filepath.c_str());
+        return false;
+    }
+    // A missing thumbnail is not fatal: the state is what matters.
+    write_thumbnail_bmp(filepath);
+    return true;
+}
+
+bool FMTownsEngine::load_snapshot(const std::string& filepath) {
+    if (!initialized_ || filepath.empty()) {
+        return false;
+    }
+    if (!core_->LoadState(filepath.c_str(), -1)) {
+        std::fprintf(stderr, "asuka/fmtowns: cannot load snapshot '%s'\n",
+                     filepath.c_str());
+        return false;
+    }
+    return true;
+}
+
+// Write the most recent frame as a bottom-up 24-bit BMP (BGR rows, padded to
+// 4 bytes). No scaling: the web shell downscales for the preview itself.
+bool FMTownsEngine::write_thumbnail_bmp(const std::string& state_path) const {
+    if (frame_width_ <= 0 || frame_height_ <= 0 || framebuffer_.empty()) {
+        return false;
+    }
+
+    const int width = frame_width_;
+    const int height = frame_height_;
+    const int row_bytes = width * 3;
+    const int padding = (4 - (row_bytes % 4)) % 4;
+    const uint32_t pixel_bytes = static_cast<uint32_t>((row_bytes + padding) * height);
+    const uint32_t file_bytes = 14 + 40 + pixel_bytes;
+
+    std::ofstream out(ThumbnailPath(state_path), std::ios::binary);
+    if (!out) {
+        return false;
+    }
+
+    const auto u16 = [&out](uint16_t v) {
+        const uint8_t b[2] = {static_cast<uint8_t>(v & 0xff),
+                              static_cast<uint8_t>((v >> 8) & 0xff)};
+        out.write(reinterpret_cast<const char*>(b), 2);
+    };
+    const auto u32 = [&out](uint32_t v) {
+        const uint8_t b[4] = {static_cast<uint8_t>(v & 0xff),
+                              static_cast<uint8_t>((v >> 8) & 0xff),
+                              static_cast<uint8_t>((v >> 16) & 0xff),
+                              static_cast<uint8_t>((v >> 24) & 0xff)};
+        out.write(reinterpret_cast<const char*>(b), 4);
+    };
+
+    // BITMAPFILEHEADER
+    out.put('B');
+    out.put('M');
+    u32(file_bytes);
+    u16(0);
+    u16(0);
+    u32(14 + 40);
+    // BITMAPINFOHEADER
+    u32(40);
+    u32(static_cast<uint32_t>(width));
+    u32(static_cast<uint32_t>(height));  // positive: bottom-up rows
+    u16(1);
+    u16(24);
+    u32(0);
+    u32(pixel_bytes);
+    u32(2835);
+    u32(2835);
+    u32(0);
+    u32(0);
+
+    // BMP rows run bottom-up; the framebuffer is top-down XRGB8888.
+    const uint8_t pad[3] = {0, 0, 0};
+    const size_t stride = static_cast<size_t>(width);
+    for (int y = height - 1; y >= 0; --y) {
+        const uint32_t* row = framebuffer_.data() + static_cast<size_t>(y) * stride;
+        for (int x = 0; x < width; ++x) {
+            const uint32_t px = row[x];
+            const uint8_t bgr[3] = {static_cast<uint8_t>(px & 0xff),
+                                    static_cast<uint8_t>((px >> 8) & 0xff),
+                                    static_cast<uint8_t>((px >> 16) & 0xff)};
+            out.write(reinterpret_cast<const char*>(bgr), 3);
+        }
+        if (padding > 0) {
+            out.write(reinterpret_cast<const char*>(pad), padding);
+        }
+    }
+
+    return out.good();
 }
 
 void FMTownsEngine::reset() {

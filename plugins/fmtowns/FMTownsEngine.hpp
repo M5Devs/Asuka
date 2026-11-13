@@ -38,6 +38,8 @@ public:
     const uint32_t* get_framebuffer(int& width, int& height) override;
     const int16_t* get_audio_samples(size_t& sample_count) override;
     void send_input(uint32_t key_code, bool pressed) override;
+    bool save_snapshot(const std::string& filepath) override;
+    bool load_snapshot(const std::string& filepath) override;
     void reset() override;
     void shutdown() override;
 
@@ -56,6 +58,10 @@ private:
     struct CoreDeleter {
         void operator()(GeartownsCore* core) const noexcept;
     };
+
+    // Write the current frame as a 24-bit BMP next to a state file. Returns
+    // false if there is no frame yet or the file cannot be written.
+    bool write_thumbnail_bmp(const std::string& state_path) const;
 
     std::unique_ptr<GeartownsCore, CoreDeleter> core_;
     bool initialized_ = false;

@@ -56,6 +56,9 @@ struct Options {
     bool headless = false;
     bool no_audio = false;
     bool integer_scale = true;
+    // Single snapshot slot: F5 saves the machine here, F8 restores it. Defaults
+    // to "<media>.state" (with a BMP thumbnail beside it) once media is known.
+    std::string snapshot;
 };
 
 void print_usage(const char* argv0) {
@@ -73,10 +76,12 @@ void print_usage(const char* argv0) {
         "  --no-integer-scale   allow fractional scaling instead of integers\n"
         "  --headless            no window; still runs audio and the loop\n"
         "  --no-audio            do not open an audio device\n"
+        "  --snapshot <path>     state file for F5 (save) / F8 (load)\n"
         "  -h, --help            show this help\n"
         "\n"
         "Controls: arrows = d-pad, Enter = Start, Space/Z/X/C = fire buttons,\n"
-        "R = reset, F11 = fullscreen, Esc = quit. A gamepad is used if present.\n",
+        "R = reset, F11 = fullscreen, F5 = save state, F8 = load state,\n"
+        "Esc = quit. A gamepad is used if present.\n",
         argv0, kDefaultWindowWidth, kDefaultWindowHeight);
 }
 
@@ -136,6 +141,8 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
             opts.headless = true;
         } else if (arg == "--no-audio") {
             opts.no_audio = true;
+        } else if (arg == "--snapshot") {
+            if (!take_value(argc, argv, i, opts.snapshot)) return false;
         } else {
             std::fprintf(stderr, "error: unknown option '%s'\n", arg.c_str());
             return false;
@@ -412,6 +419,22 @@ bool run(const Options& opts) {
 
     std::printf("Running. Esc quits, R resets, F11 toggles fullscreen.\n");
 
+    // Resolve the snapshot slot: explicit --snapshot, else "<media>.state".
+    std::string snapshot_path = opts.snapshot;
+    if (snapshot_path.empty() && !opts.media.empty()) {
+        snapshot_path = opts.media;
+        const std::string::size_type dot = snapshot_path.find_last_of('.');
+        const std::string::size_type slash = snapshot_path.find_last_of("/\\");
+        if (dot != std::string::npos &&
+            (slash == std::string::npos || dot > slash)) {
+            snapshot_path.erase(dot);
+        }
+        snapshot_path += ".state";
+    }
+    if (!snapshot_path.empty()) {
+        std::printf("Snapshots: F5 saves, F8 loads (%s)\n", snapshot_path.c_str());
+    }
+
     const Uint32 max_queued =
         static_cast<Uint32>(static_cast<int64_t>(kAudioTargetMs) *
                             kAudioSampleRate / 1000 * kAudioChannels *
@@ -452,6 +475,22 @@ bool run(const Options& opts) {
                     }
                     if (event.key.keysym.scancode == SDL_SCANCODE_R) {
                         engine->reset();
+                        break;
+                    }
+                    if (event.key.keysym.scancode == SDL_SCANCODE_F5 &&
+                        !snapshot_path.empty()) {
+                        std::printf(engine->save_snapshot(snapshot_path)
+                                        ? "Snapshot saved to %s\n"
+                                        : "Snapshot save FAILED (%s)\n",
+                                    snapshot_path.c_str());
+                        break;
+                    }
+                    if (event.key.keysym.scancode == SDL_SCANCODE_F8 &&
+                        !snapshot_path.empty()) {
+                        std::printf(engine->load_snapshot(snapshot_path)
+                                        ? "Snapshot loaded from %s\n"
+                                        : "Snapshot load FAILED (%s)\n",
+                                    snapshot_path.c_str());
                         break;
                     }
                     if (event.key.repeat == 0) {

@@ -51,6 +51,17 @@ public:
     // `pressed` is true on key-down and false on key-up.
     virtual void send_input(uint32_t key_code, bool pressed) = 0;
 
+    // Serialise the complete machine state (CPU, memory, devices) to
+    // `filepath` so it can be restored exactly with load_snapshot(). Cores
+    // that can render also write a visual thumbnail next to the state file
+    // (see the core's documentation for the sidecar naming). Returns false on
+    // failure.
+    virtual bool save_snapshot(const std::string& filepath) = 0;
+
+    // Restore a state previously written by save_snapshot(). Returns false on
+    // failure (missing/corrupt file, or a state for different media).
+    virtual bool load_snapshot(const std::string& filepath) = 0;
+
     // Soft-reset the machine while keeping the media loaded.
     virtual void reset() = 0;
 
