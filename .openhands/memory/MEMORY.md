@@ -141,3 +141,33 @@ GPLv3. `LICENSE` pre-existing; `README.md` rewritten in Task 1.
 - Verified: clean release rebuild 0 warnings, `ctest` 2/2, ASan/LSan clean over
   a 600-frame real boot (exit 0, no leaks), verification script PASS
   (`733 colours`, `72% non-black ink`).
+
+## Task 4 — boot recording (MP4/GIF), verified
+- **Runner gained `--dump-frames <dir>`** (`src/main.cpp`) → writes every frame
+  as `<dir>/frame_%04d.ppm`. Needs `<filesystem>` (GCC 14, C++17, no `-lstdc++fs`).
+- **Mode changes mid-recording**: 640×480 (frames 0-7) → 640×400 (8-1124) →
+  320×240 (1125+). ffmpeg's image2 demuxer needs a *constant* frame size, so
+  `scripts/normalise_frames.py` letterboxes every frame onto one 640×480 canvas
+  at the **largest integer scale that fits** (per-frame, NOT a global scale —
+  640×400 would blow up to 1280×800). 320×240 → exactly 2×, fills the canvas.
+- **Long static stretch**: frames **200-1120 are byte-identical** (the machine
+  idles on the boot screen ~15 s). `record_fmtowns_boot.sh` cuts it with
+  `plan = [(0,200),(1100,1799)]`; the join is between two identical frames so
+  the cut is invisible. Result: 901 frames = 15.0 s @ 60 fps.
+- **Timeline of the final clip** (t in s): 0-1 blank → 1-3.5 boot menu appears
+  (8.8% ink, 640×400 letterboxed) → 3.5-5 boot menu static → 5-6 mode switch →
+  6-10 blank 320×240 → 10-13 title screen (72% ink, ~20k colours) → 13-15 fade.
+- **Encoding commands that work**:
+  - MP4: `ffmpeg -framerate 60 -i .../frame_%04d.ppm -c:v libx264 -pix_fmt
+    yuv420p -preset slow -crf 18 -movflags +faststart` → 15 s, ~520 KB.
+  - GIF: `-vf "fps=20,split[a][b];[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" -loop 0`
+    → 300 frames, 640×480, ~1.1 MB (two-pass palette; good size/quality).
+- **Committed demo**: `docs/media/afterburner_boot.{mp4,gif}` embedded in the
+  README (`docs/media/` is *not* git-ignored; `test_assets/` is).
+- **ffmpeg was missing** → `sudo apt-get install -y ffmpeg` (passwordless sudo
+  works; plain apt-get fails, the lists lock is root-owned). Installed 7.1.5.
+  Resets with the container, like other tools.
+- Full pipeline: `scripts/record_fmtowns_boot.sh` (runs emulator → builds
+  sequence → normalises → encodes → deletes raw frames), ~10 s end to end.
+  Rebuild of runner + `ctest` still 2/2 after the `--dump-frames` change.
+- Commits: `c1acb78` (recording pipeline + demo clip). Remote head `c1acb78`.
