@@ -1,0 +1,7 @@
+build/
+*.o
+*.so
+*.dylib
+*.dll
+.cache/
+compile_commands.json
