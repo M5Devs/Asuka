@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f1a">
+<title>Asuka — FM Towns in the browser</title>
+<style>
+  :root {
+    --bg: #070a12;
+    --panel: #111725;
+    --panel-2: #182033;
+    --ink: #e8ecf6;
+    --muted: #8b97b4;
+    --accent: #ff5d8f;
+    --accent-2: #38d9c8;
+    --edge: #263149;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, #1b2440 0%, transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--edge);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    flex: 0 0 auto;
+  }
+
+  header .logo {
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    font-size: 15px;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  header .logo b { color: var(--accent); }
+  header .tag { color: var(--muted); font-size: 12px; }
+
+  .spacer { flex: 1 1 auto; }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--edge);
+    background: var(--panel-2);
+    color: var(--ink);
+    border-radius: 9px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, transform .05s;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent-2); background: #1d2740; }
+  .btn:active { transform: translateY(1px); }
+  .btn[disabled] { opacity: .45; cursor: not-allowed; }
+  .btn.primary { border-color: var(--accent); background: #2a1830; }
+  .btn.primary:hover { background: #3a1f42; }
+
+  main {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 14px;
+    padding: 14px;
+    min-height: 0;
+  }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    aside { order: 2; }
+  }
+
+  .stage {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    border: 1px solid var(--edge);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    min-height: 260px;
+  }
+
+  #canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    touch-action: none;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+    padding: 24px;
+    background: rgba(4, 7, 14, 0.82);
+    backdrop-filter: blur(3px);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0; color: var(--ink); font-size: 16px; letter-spacing: .04em; }
+  .overlay .hint { max-width: 46ch; }
+
+  .dropzone {
+    border: 2px dashed var(--edge);
+    border-radius: 12px;
+    padding: 18px;
+    width: min(520px, 90%);
+    transition: border-color .15s, background .15s;
+  }
+  .dropzone.hot { border-color: var(--accent); background: rgba(255, 93, 143, 0.08); }
+
+  aside {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 14px;
+    padding: 14px;
+  }
+  .card h3 {
+    margin: 0 0 10px;
+    font-size: 12px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .filelist { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
+  .filelist .row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 7px 9px;
+  }
+  .filelist .row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+  .filelist .row .sz { color: var(--muted); font-size: 11px; }
+  .filelist .row .x {
+    border: none; background: transparent; color: var(--muted);
+    cursor: pointer; font: inherit; font-size: 14px; line-height: 1; padding: 0 2px;
+  }
+  .filelist .row .x:hover { color: var(--accent); }
+  .empty { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  select {
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--edge);
+    border-radius: 9px;
+    padding: 9px 10px;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  label.check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+  #log {
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-height: 180px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+  }
+  #log .ok { color: var(--accent-2); }
+  #log .err { color: var(--accent); }
+
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--edge);
+    color: var(--muted);
+  }
+  .badge.ok { color: var(--accent-2); border-color: #1c5a54; }
+  .badge.warn { color: #ffcf6b; border-color: #6a5620; }
+
+  /* ---- Touch gamepad ---- */
+  #touchpad {
+    position: fixed;
+    inset: auto 0 0 0;
+    display: none;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
+    pointer-events: none;
+    z-index: 20;
+  }
+  #touchpad.show { display: flex; }
+  #touchpad .cluster { pointer-events: auto; display: grid; gap: 8px; }
+  #touchpad .dpad { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px); }
+  #touchpad .face { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 54px); }
+  .pad {
+    -webkit-user-select: none; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(24, 32, 51, 0.82);
+    border: 1px solid var(--edge);
+    color: var(--ink);
+    border-radius: 12px;
+    font-size: 13px;
+    backdrop-filter: blur(2px);
+    touch-action: none;
+  }
+  .pad:active, .pad.on { background: rgba(255, 93, 143, 0.35); border-color: var(--accent); }
+  .pad.sys { font-size: 11px; grid-column: span 3; }
+  .pad.blank { visibility: hidden; }
+
+  footer {
+    flex: 0 0 auto;
+    padding: 8px 16px 14px;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+  }
+  footer a { color: var(--accent-2); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Asu<b>k</b>a</div>
+  <div class="tag">FM Towns · Marty — in your browser</div>
+  <div class="spacer"></div>
+  <button class="btn" id="btn-pad" title="Toggle the on-screen gamepad">Touch pad</button>
+  <button class="btn" id="btn-full" title="Fullscreen (F11)">Fullscreen</button>
+  <button class="btn" id="btn-reset" disabled>Reset</button>
+  <button class="btn primary" id="btn-run" disabled>Run</button>
+</header>
+
+<main>
+  <section class="stage">
+    <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
+
+    <div class="overlay" id="overlay">
+      <h2 id="overlay-title">Drop your FM Towns files</h2>
+      <div class="dropzone" id="dropzone">
+        <div class="hint" id="overlay-hint">
+          Drag &amp; drop the <b>BIOS ROMs</b> (FMT_SYS.ROM, FMT_DOS.ROM, …)
+          and a game disc (<b>CHD</b>, <b>CUE+BIN</b> or <b>ISO</b>) anywhere on
+          this page — or use the buttons on the right. Files are stored locally
+          in your browser and never uploaded.
+        </div>
+      </div>
+      <div class="badge" id="coi-badge">checking…</div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h3>BIOS / firmware</h3>
+      <div class="controls">
+        <button class="btn" id="pick-bios">Choose files…</button>
+        <input type="file" id="file-bios" multiple hidden
+               accept=".rom,.ROM,.bin,.BIN">
+      </div>
+      <div class="filelist" id="list-bios"></div>
+    </div>
+
+    <div class="card">
+      <h3>Game media</h3>
+      <div class="controls">
+        <button class="btn" id="pick-media">Choose files…</button>
+        <input type="file" id="file-media" multiple hidden
+               accept=".chd,.CHD,.cue,.CUE,.bin,.BIN,.iso,.ISO,.img,.IMG,.d88,.D88,.hdm,.HDM">
+      </div>
+      <div class="filelist" id="list-media"></div>
+      <label class="check"><input type="checkbox" id="persist" checked> Keep files between reloads (IndexedDB)</label>
+    </div>
+
+    <div class="card">
+      <h3>Boot from</h3>
+      <select id="media-select" disabled></select>
+      <div class="controls" style="margin-top:10px">
+        <button class="btn primary" id="btn-boot" disabled>Boot</button>
+        <button class="btn" id="btn-clear">Clear all files</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Log</h3>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+</main>
+
+<div id="touchpad">
+  <div class="cluster dpad">
+    <div class="pad blank"></div>
+    <div class="pad" data-key="up">▲</div>
+    <div class="pad blank"></div>
+    <div class="pad" data-key="left">◀</div>
+    <div class="pad blank"></div>
+    <div class="pad" data-key="right">▶</div>
+    <div class="pad blank"></div>
+    <div class="pad" data-key="down">▼</div>
+    <div class="pad blank"></div>
+  </div>
+  <div class="cluster face">
+    <div class="pad" data-key="x">X</div>
+    <div class="pad" data-key="y">Y</div>
+    <div class="pad" data-key="l">L</div>
+    <div class="pad" data-key="b">B</div>
+    <div class="pad" data-key="a">A</div>
+    <div class="pad" data-key="r">R</div>
+    <div class="pad sys" data-key="select">SELECT</div>
+    <div class="pad sys" data-key="start">START</div>
+  </div>
+</div>
+
+<footer>
+  Keyboard: arrows = d-pad · Enter = Start · Space/Z/X/C = fire · R = reset ·
+  F11 = fullscreen. Source &amp; docs:
+  <a href="https://github.com/M5Devs/Asuka">M5Devs/Asuka</a>.
+</footer>
+
+<script src="asuka_web.js"></script>
+<script>
+"use strict";
+
+// Host key identifiers — must match enum class asuka::Key in
+// include/asuka/Input.hpp (order matters).
+const KEY = {
+  None: 0, Up: 1, Down: 2, Left: 3, Right: 4,
+  Start: 5, Select: 6, A: 7, B: 8, X: 9, Y: 10, L: 11, R: 12,
+};
+
+const BIOS_DIR = "/bios";
+const MEDIA_DIR = "/media";
+
+const el = (id) => document.getElementById(id);
+const logEl = el("log");
+function log(msg, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  // Mirror to the console for debugging.
+  (cls === "err" ? console.error : console.log)("[asuka] " + msg);
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const state = {
+  Module: null,
+  biosFiles: new Map(),   // name -> File
+  mediaFiles: new Map(),  // name -> File
+  running: false,
+  booting: false,
+};
+
+// ---------------------------------------------------------------------------
+// Cross-origin isolation check (threads / SharedArrayBuffer need COOP+COEP)
+// ---------------------------------------------------------------------------
+function updateCoBadge() {
+  const badge = el("coi-badge");
+  if (window.crossOriginIsolated) {
+    badge.textContent = "cross-origin isolated ✓ — threads available";
+    badge.className = "badge ok";
+  } else {
+    badge.textContent =
+      "not cross-origin isolated — serve with COOP/COEP headers (see web/_headers)";
+    badge.className = "badge warn";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Virtual filesystem helpers
+// ---------------------------------------------------------------------------
+function ensureDir(path) {
+  const FS = state.Module.FS;
+  try { FS.mkdir(path); } catch (e) {
+    if (e && e.errno !== 20 /* EEXIST */) throw e;
+  }
+}
+
+async function writeFile(dir, file) {
+  const FS = state.Module.FS;
+  ensureDir(dir);
+  // Preserve any relative path the browser exposes (folder drops).
+  const rel = (file.webkitRelativePath || file.name).split("/").slice(-1)[0];
+  const path = `${dir}/${rel}`;
+  const buf = new Uint8Array(await file.arrayBuffer());
+  FS.writeFile(path, buf);
+  return path;
+}
+
+function syncfs(populate) {
+  return new Promise((resolve) => {
+    const FS = state.Module.FS;
+    FS.syncfs(!!populate, (err) => {
+      if (err) log("IndexedDB sync warning: " + err, "err");
+      resolve();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// File bookkeeping + UI
+// ---------------------------------------------------------------------------
+const MEDIA_EXT = ["chd", "cue", "iso", "img", "d88", "hdm", "bin"];
+
+function classify(file) {
+  const ext = file.name.toLowerCase().split(".").pop();
+  // A CUE disc's tracks are .bin files, so .bin counts as media. Firmware ROMs
+  // are .rom; anything else is treated as firmware.
+  if (MEDIA_EXT.includes(ext)) return "media";
+  return "bios";
+}
+
+// `forced` lets the explicit pickers say which bucket a file belongs in
+// (drag & drop has to guess from the extension).
+function addFiles(files, forced) {
+  let added = 0;
+  for (const f of files) {
+    const kind = forced || classify(f);
+    (kind === "media" ? state.mediaFiles : state.biosFiles).set(f.name, f);
+    added++;
+  }
+  if (added) refreshLists();
+  return added;
+}
+
+function humanSize(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1024 * 1024 * 1024) return (n / 1048576).toFixed(1) + " MB";
+  return (n / 1073741824).toFixed(2) + " GB";
+}
+
+function renderList(containerId, map, kind) {
+  const box = el(containerId);
+  box.innerHTML = "";
+  if (map.size === 0) {
+    const p = document.createElement("div");
+    p.className = "empty";
+    p.textContent = kind === "bios"
+      ? "No firmware yet (FMT_SYS.ROM, FMT_DOS.ROM, FMT_FNT.ROM, FMT_DIC.ROM, FMT_F20.ROM)"
+      : "No disc yet (CHD, CUE+BIN or ISO)";
+    box.appendChild(p);
+    return;
+  }
+  for (const [name, file] of map) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = name;
+    nm.title = name;
+    const sz = document.createElement("span");
+    sz.className = "sz";
+    sz.textContent = humanSize(file.size);
+    const x = document.createElement("button");
+    x.className = "x";
+    x.textContent = "✕";
+    x.title = "Remove";
+    x.onclick = () => { map.delete(name); refreshLists(); };
+    row.append(nm, sz, x);
+    box.appendChild(row);
+  }
+}
+
+function refreshLists() {
+  renderList("list-bios", state.biosFiles, "bios");
+  renderList("list-media", state.mediaFiles, "media");
+
+  const sel = el("media-select");
+  sel.innerHTML = "";
+  for (const name of state.mediaFiles.keys()) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = name;
+    sel.appendChild(o);
+  }
+  sel.disabled = state.mediaFiles.size === 0;
+  el("btn-boot").disabled = state.booting || state.mediaFiles.size === 0;
+
+  const ready = state.biosFiles.size > 0 && state.mediaFiles.size > 0;
+  el("btn-run").disabled = !ready || state.running;
+}
+
+// ---------------------------------------------------------------------------
+// Emscripten module lifecycle
+// ---------------------------------------------------------------------------
+async function loadModule() {
+  if (state.Module) return state.Module;
+  log("loading asuka_web.js …");
+  const factory = window.createAsukaModule;
+  if (typeof factory !== "function") {
+    throw new Error("asuka_web.js not loaded (missing createAsukaModule)");
+  }
+  const Module = await factory({
+    canvas: el("canvas"),
+    arguments: [],
+    print: (s) => log(s),
+    printErr: (s) => log(s, "err"),
+  });
+  state.Module = Module;
+  // Debug handle: lets the console (and the headless test) inspect the runtime.
+  window.asuka = {
+    module: Module,
+    ccall: (n, r, a, v) => Module.ccall(n, r, a, v),
+    state,
+  };
+  log("runtime ready", "ok");
+
+  await mountStorage();
+  return Module;
+}
+
+// Mount persistent IndexedDB-backed storage over /bios and /media, once.
+let storageMounted = false;
+async function mountStorage() {
+  if (storageMounted) return;
+  const Module = state.Module;
+  if (!Module || !Module.FS) {
+    log("warning: filesystem unavailable; files will not persist", "err");
+    return;
+  }
+  ensureDir(BIOS_DIR);
+  ensureDir(MEDIA_DIR);
+  if (Module.IDBFS) {
+    try {
+      Module.FS.mount(Module.IDBFS, {}, BIOS_DIR);
+      Module.FS.mount(Module.IDBFS, {}, MEDIA_DIR);
+      await syncfs(true);  // load persisted files
+      log("IndexedDB storage mounted");
+    } catch (e) {
+      log("IndexedDB mount failed (files stay in memory only): " + e, "err");
+    }
+  } else {
+    log("warning: IDBFS not linked; files will not persist across reloads", "err");
+  }
+  storageMounted = true;
+}
+
+async function mountFiles() {
+  const Module = state.Module;
+  const FS = Module.FS;
+  // Start from a clean slate so a removed file really disappears.
+  for (const dir of [BIOS_DIR, MEDIA_DIR]) {
+    try { FS.readdir(dir).forEach((n) => { if (n !== "." && n !== "..") FS.unlink(`${dir}/${n}`); }); }
+    catch (e) { /* directory may not exist yet */ }
+  }
+
+  for (const f of state.biosFiles.values()) await writeFile(BIOS_DIR, f);
+  for (const f of state.mediaFiles.values()) await writeFile(MEDIA_DIR, f);
+  await syncfs(false);
+  log(`mounted ${state.biosFiles.size} BIOS file(s), ${state.mediaFiles.size} media file(s)`);
+}
+
+function ccall(name, ret, args, values) {
+  return state.Module.ccall(name, ret, args, values);
+}
+
+async function boot() {
+  if (state.booting) return;
+  state.booting = true;
+  el("btn-boot").disabled = true;
+  try {
+    await loadModule();
+    await mountFiles();
+
+    const mediaName = el("media-select").value;
+    const mediaPath = `${MEDIA_DIR}/${mediaName}`;
+    log(`init(bios=${BIOS_DIR}, media=${mediaPath})`);
+
+    const ok = ccall("asuka_web_init", "number", ["string", "string"],
+                     [BIOS_DIR, mediaPath]);
+    if (!ok) {
+      const err = state.Module.UTF8ToString(ccall("asuka_web_last_error", "number", [], []));
+      throw new Error(err || "engine init failed");
+    }
+    log("engine initialised", "ok");
+    ccall("asuka_web_start", null, ["number"], [0]);
+    state.running = true;
+    hideOverlay();
+    el("btn-reset").disabled = false;
+    el("canvas").focus();
+    log("running", "ok");
+  } catch (e) {
+    log("boot failed: " + (e && e.message ? e.message : e), "err");
+    showOverlay("Boot failed", String(e && e.message ? e.message : e));
+  } finally {
+    state.booting = false;
+    refreshLists();
+  }
+}
+
+function reset() {
+  if (!state.Module) return;
+  ccall("asuka_web_reset", null, [], []);
+  log("reset");
+}
+
+function sendKey(name, pressed) {
+  if (!state.Module) return;
+  const code = KEY[name];
+  if (code === undefined) return;
+  ccall("asuka_web_key", null, ["number", "number"], [code, pressed ? 1 : 0]);
+}
+
+// ---------------------------------------------------------------------------
+// Overlay helpers
+// ---------------------------------------------------------------------------
+function showOverlay(title, hint) {
+  el("overlay-title").textContent = title;
+  if (hint) el("overlay-hint").innerHTML = hint;
+  el("overlay").classList.remove("hidden");
+}
+function hideOverlay() { el("overlay").classList.add("hidden"); }
+
+// ---------------------------------------------------------------------------
+// Wire up the UI
+// ---------------------------------------------------------------------------
+function setup() {
+  updateCoBadge();
+
+  el("pick-bios").onclick = () => el("file-bios").click();
+  el("pick-media").onclick = () => el("file-media").click();
+  el("file-bios").onchange = (e) => { addFiles(e.target.files, "bios"); e.target.value = ""; };
+  el("file-media").onchange = (e) => { addFiles(e.target.files, "media"); e.target.value = ""; };
+
+  el("btn-boot").onclick = boot;
+  el("btn-run").onclick = boot;
+  el("btn-reset").onclick = reset;
+  el("btn-clear").onclick = async () => {
+    state.biosFiles.clear();
+    state.mediaFiles.clear();
+    refreshLists();
+    if (state.Module) {
+      for (const dir of [BIOS_DIR, MEDIA_DIR]) {
+        try { state.Module.FS.readdir(dir).forEach((n) => {
+          if (n !== "." && n !== "..") state.Module.FS.unlink(`${dir}/${n}`); }); }
+        catch (e) { /* ignore */ }
+      }
+      await syncfs(false);
+    }
+    log("cleared stored files");
+  };
+
+  el("btn-full").onclick = toggleFullscreen;
+  el("btn-pad").onclick = () => el("touchpad").classList.toggle("show");
+
+  // Drag & drop anywhere on the page.
+  const stage = document.querySelector(".stage");
+  const dz = el("dropzone");
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  ["dragenter", "dragover"].forEach((ev) =>
+    document.addEventListener(ev, (e) => { stop(e); dz.classList.add("hot"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    document.addEventListener(ev, (e) => { stop(e); dz.classList.remove("hot"); }));
+  document.addEventListener("drop", async (e) => {
+    const items = e.dataTransfer ? e.dataTransfer.files : null;
+    if (items && items.length) {
+      const n = addFiles(items);
+      log(`added ${n} file(s) via drag & drop`);
+      if (!state.running) showOverlay("Files added",
+        `${state.biosFiles.size} BIOS file(s), ${state.mediaFiles.size} media file(s). Pick the disc and press <b>Boot</b>.`);
+    }
+  });
+
+  // Keyboard.
+  window.addEventListener("keydown", (e) => onKey(e, true));
+  window.addEventListener("keyup", (e) => onKey(e, false));
+
+  // Touch gamepad buttons.
+  document.querySelectorAll("#touchpad .pad[data-key]").forEach((pad) => {
+    const name = pad.dataset.key;
+    const press = (on) => (ev) => { ev.preventDefault(); pad.classList.toggle("on", on); sendKey(name, on); };
+    pad.addEventListener("pointerdown", press(true));
+    pad.addEventListener("pointerup", press(false));
+    pad.addEventListener("pointercancel", press(false));
+    pad.addEventListener("pointerleave", press(false));
+  });
+
+  refreshLists();
+}
+
+const SCAN_TO_KEY = {
+  ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+  Enter: "start", NumpadEnter: "start", Backspace: "select",
+  Space: "a", KeyZ: "b", KeyX: "x", KeyC: "y",
+};
+
+function onKey(e, pressed) {
+  // Host-level shortcuts first.
+  if (pressed && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
+  if (pressed && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
+  const name = SCAN_TO_KEY[e.code];
+  if (name) { sendKey(name, pressed); e.preventDefault(); }
+}
+
+function toggleFullscreen() {
+  const stage = document.querySelector(".stage");
+  if (!document.fullscreenElement) {
+    (stage.requestFullscreen || stage.webkitRequestFullscreen || (() => {})).call(stage);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot the page.
+// ---------------------------------------------------------------------------
+window.addEventListener("DOMContentLoaded", () => {
+  setup();
+  log("Asuka web shell ready");
+  if (!window.crossOriginIsolated) {
+    log("warning: not cross-origin isolated — the threaded build will not run. " +
+        "Serve with COOP/COEP (scripts/serve_web.py or the Cloudflare _headers).", "err");
+  }
+  // Preload the runtime so the first Boot is quick.
+  loadModule().catch((e) => log("preload failed: " + e.message, "err"));
+});
+</script>
+</body>
+</html>

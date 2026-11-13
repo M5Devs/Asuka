@@ -1,8 +1,15 @@
-# FM Towns / Marty engine plugin, wrapping the Geartowns core.
+# FM Towns / Marty engine, wrapping the Geartowns core.
 #
 # Only Geartowns' emulation core and its data dependencies are built here: the
-# desktop GUI stack (SDL3, OpenGL, imgui, glad) is not needed for a headless
-# Asuka plugin.
+# desktop GUI stack (SDL3, OpenGL, imgui, glad) is not needed for an Asuka
+# engine.
+#
+# The engine is split so it can be consumed two ways:
+#   * asuka_fmtowns_core  - STATIC: the engine glue + the whole Geartowns core.
+#   * asuka_fmtowns       - SHARED: the dynamic plugin for the desktop runners.
+#   * asuka_fmtowns_static- STATIC: the plugin entry points for the web build,
+#                                   which links the engine in directly because
+#                                   dlopen across WASM modules is brittle.
 
 find_package(Threads REQUIRED)
 
@@ -97,25 +104,25 @@ set(GT_DEP_SOURCES
     "${GT_DEPS}/minivorbis/minivorbis.c"
     "${GT_DEPS}/miniz/miniz.c")
 
-add_library(asuka_fmtowns SHARED
+# --- Engine core (static) ----------------------------------------------------
+# Holds the Asuka glue (FMTownsEngine) plus the vendored core. PIC so the
+# desktop shared plugin can link it.
+add_library(asuka_fmtowns_core STATIC
     FMTownsEngine.cpp
-    fmtowns_plugin.cpp
     gt_compat.cpp
     ${GT_CORE_SOURCES}
     ${GT_DEP_SOURCES})
 
-# Our own glue sources compile with the shared strict warning set; the
-# vendored Geartowns and dependency sources get warning suppression below.
-target_link_libraries(asuka_fmtowns PRIVATE asuka_warnings Threads::Threads)
+target_link_libraries(asuka_fmtowns_core PRIVATE asuka_warnings Threads::Threads)
 
 # Vendored code references dlopen()/dlsym() (Linux), so link libdl where needed.
-if(UNIX AND NOT APPLE)
-    target_link_libraries(asuka_fmtowns PRIVATE ${CMAKE_DL_LIBS})
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    target_link_libraries(asuka_fmtowns_core PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 # Vendor headers are treated as system headers so their diagnostics stay out
 # of our glue compilation.
-target_include_directories(asuka_fmtowns SYSTEM PRIVATE
+target_include_directories(asuka_fmtowns_core SYSTEM PRIVATE
     "${GT_SRC}"
     "${GT_DEPS}/bochs_fpu"
     "${GT_DEPS}/json"
@@ -125,27 +132,53 @@ target_include_directories(asuka_fmtowns SYSTEM PRIVATE
     "${GT_DEPS}/miniz"
     "${GT_DEPS}/zstd")
 
-target_include_directories(asuka_fmtowns PRIVATE
-    "${CMAKE_SOURCE_DIR}/include"
+target_include_directories(asuka_fmtowns_core PUBLIC
+    "${CMAKE_SOURCE_DIR}/include")
+target_include_directories(asuka_fmtowns_core PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_compile_definitions(asuka_fmtowns PRIVATE
+target_compile_definitions(asuka_fmtowns_core PRIVATE
     # Interpreter instead of the Lightning JIT: no extra dependency and fully
-    # deterministic, which suits a headless runner.
+    # deterministic, which suits a headless runner and is required on the web.
     GT_DISABLE_DYNAREC
     # Match Geartowns' own dependency build flags.
     Z7_ST
     ZSTD_DISABLE_ASM
     EMULATOR_BUILD="asuka")
 
-# Geartowns builds its core without exceptions or RTTI in release.
-set_target_properties(asuka_fmtowns PROPERTIES
+set_target_properties(asuka_fmtowns_core PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    # Keep the engine internals out of the desktop plugin's dynamic symbol
+    # table; only the ASUKA_EXPORT factory entry points stay visible.
     CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/fmtowns"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/fmtowns")
+    VISIBILITY_INLINES_HIDDEN ON)
 
 # Silence warnings for vendored code only (appended after target options).
 set_source_files_properties(
     ${GT_CORE_SOURCES} ${GT_DEP_SOURCES}
     PROPERTIES COMPILE_OPTIONS "-w")
+
+# --- Desktop plugin (shared) -------------------------------------------------
+# Native only: the web build links asuka_fmtowns_static instead.
+if(NOT ASUKA_BUILD_WEB)
+    add_library(asuka_fmtowns SHARED
+        fmtowns_plugin.cpp)
+
+    target_link_libraries(asuka_fmtowns PRIVATE asuka_fmtowns_core asuka_warnings)
+
+    # Hide every symbol except the explicitly exported factory entry points.
+    set_target_properties(asuka_fmtowns PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/fmtowns"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/plugins/fmtowns")
+endif()
+
+# --- Static plugin (web) -----------------------------------------------------
+# The web build links the engine in directly instead of dlopen-ing a module.
+if(ASUKA_BUILD_WEB)
+    add_library(asuka_fmtowns_static STATIC
+        fmtowns_plugin.cpp)
+    target_link_libraries(asuka_fmtowns_static PRIVATE
+        asuka_fmtowns_core asuka_warnings)
+endif()

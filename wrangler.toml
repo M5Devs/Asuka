@@ -1,0 +1,25 @@
+# Cloudflare Pages configuration for the Asuka web shell.
+#
+# The bundle is a plain static site (HTML + JS glue + WASM), built by
+# scripts/build_web.sh into web/dist. Cloudflare Pages serves that directory
+# and applies the COOP/COEP headers from web/_headers, which the WASM threads
+# need.
+#
+# One-click deploy (either works):
+#
+#   1. Cloudflare dashboard -> Workers & Pages -> Create -> Pages ->
+#      Connect to Git -> pick M5Devs/Asuka, then set:
+#          Build command:        bash scripts/build_web.sh
+#          Build output dir:     web/dist
+#      (Requires the Geartowns submodule; the build script fetches it.)
+#
+#   2. Command line:
+#          npm i -g wrangler
+#          wrangler pages deploy web/dist --project-name asuka
+#
+# The build output directory is web/dist. Nothing here is a Worker script, so
+# no main/module entry is defined.
+
+name = "asuka"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "web/dist"

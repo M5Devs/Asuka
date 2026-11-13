@@ -10,3 +10,6 @@ compile_commands.json
 
 # Local test assets (copyrighted BIOS ROMs, large disc images) are never tracked.
 test_assets/
+
+# Web build artefacts (produced by scripts/build_web.sh).
+web/dist/

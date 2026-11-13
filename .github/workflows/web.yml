@@ -1,0 +1,83 @@
+name: Web build (WebAssembly)
+
+# Builds the Emscripten bundle and, on main, publishes it to Cloudflare Pages.
+# The bundle is also uploaded as a build artefact so a Pages "Direct Upload" or
+# any other static host can pick it up without a Cloudflare token.
+#
+# Optional repository secrets for automatic deployment:
+#   CLOUDFLARE_API_TOKEN    - token with the "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID   - the account that owns the Pages project
+#   CLOUDFLARE_PROJECT_NAME - Pages project name (defaults to "asuka")
+# With none set, the job still builds and uploads the artefact.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'include/**'
+      - 'src/**'
+      - 'plugins/**'
+      - 'web/**'
+      - 'scripts/build_web.sh'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'include/**'
+      - 'src/**'
+      - 'plugins/**'
+      - 'web/**'
+      - 'scripts/build_web.sh'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    name: Build WASM bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify toolchain
+        run: emcc --version
+
+      - name: Build web bundle
+        run: bash scripts/build_web.sh --jobs 4
+
+      - name: Upload bundle as an artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: asuka-web-dist
+          path: web/dist
+          if-no-files-found: error
+
+      # Deploy only from main. Secrets cannot be tested in an `if:`, so the
+      # step checks for the token itself and exits cleanly when it is absent.
+      - name: Publish to Cloudflare Pages
+        if: github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PROJECT_NAME: ${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "Cloudflare secrets not configured; skipping deploy."
+            exit 0
+          fi
+          npx --yes wrangler@3 pages deploy web/dist \
+            --project-name "${CLOUDFLARE_PROJECT_NAME:-asuka}" \
+            --branch "${{ github.ref_name }}" \
+            --commit-dirty=true

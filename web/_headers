@@ -1,0 +1,21 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+# WebAssembly is fetched as a same-origin module; allow its MIME type and keep
+# it cacheable. The .js glue and .worker.js change with every build, so they are
+# served with a modest cache and revalidated.
+/asuka_web.wasm
+  Content-Type: application/wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+/asuka_web.js
+  Content-Type: text/javascript; charset=utf-8
+  Cache-Control: public, max-age=0, must-revalidate
+
+/asuka_web.worker.js
+  Content-Type: text/javascript; charset=utf-8
+  Cache-Control: public, max-age=0, must-revalidate
+
+/
+  Cache-Control: public, max-age=0, must-revalidate

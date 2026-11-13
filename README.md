@@ -18,6 +18,10 @@ Licensed under the [GNU General Public License v3.0](LICENSE).
 - **Task 4 — interactive runner.** `asuka_play`, an SDL2 desktop runner with a
   window, live audio playback and keyboard/gamepad input, so games can be played
   in real time.
+- **Task 5 — the browser.** The FM Towns core builds to WebAssembly with
+  Emscripten (`scripts/build_web.sh`), and a self-contained web shell
+  (`web/index.html`) runs it on a canvas with Web Audio. Ready to deploy to
+  Cloudflare Pages.
 
 ## Architecture
 
@@ -96,15 +100,25 @@ src/
   main.cpp            headless CLI runner (asuka_runner)
   interactive/
     main_sdl.cpp      interactive SDL2 runner (asuka_play)
+  web/
+    main_web.cpp      Emscripten entry + JS-facing API (asuka_web)
 plugins/dummy/
   DummyEngine.{hpp,cpp}   mock core: colour-cycle video + sine audio
   dummy_plugin.cpp        exported create_engine/destroy_engine
 plugins/fmtowns/
   FMTownsEngine.{hpp,cpp} Geartowns-backed FM Towns / Marty core
   fmtowns_plugin.cpp      exported create_engine/destroy_engine
+  fmtowns_plugin.hpp      factory declarations for the static (web) link
   gt_compat.cpp           provides symbols Geartowns' desktop app supplies
   vendor/Geartowns/       git submodule (the emulator)
   CMakeLists.txt
+web/
+  index.html          the browser shell (canvas, drag & drop, touch pad)
+  _headers            COOP/COEP + MIME headers for Cloudflare Pages
+scripts/
+  build_web.sh        Emscripten build -> web/dist
+  serve_web.py        local server with the isolation headers
+wrangler.toml         Cloudflare Pages project config
 CMakeLists.txt
 ```
 
@@ -221,6 +235,59 @@ a nominal 60 Hz. The framebuffer is uploaded to a streaming texture and drawn
 letterboxed with integer scaling and nearest-neighbour filtering, so the pixel
 art stays crisp; the texture is recreated when the machine changes video mode
 mid-session.
+
+## Web (WebAssembly + Cloudflare Pages)
+
+The same FM Towns core builds to a single WebAssembly module with Emscripten,
+and `web/index.html` is a self-contained shell that runs it on a `<canvas>` with
+Web Audio, keyboard/gamepad input and an on-screen touch pad. There is no
+`dlopen` on the web: the engine is linked straight into the module and the shell
+calls a small C API (`asuka_web_init`, `asuka_web_start`, …).
+
+### Prerequisites
+
+The [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html):
+
+```sh
+git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
+cd ~/emsdk && ./emsdk install latest && ./emsdk activate latest
+source ~/emsdk/emsdk_env.sh
+```
+
+### Build
+
+```sh
+scripts/build_web.sh              # -> web/dist/{index.html,_headers,asuka_web.js,asuka_web.wasm}
+python3 scripts/serve_web.py      # http://127.0.0.1:8000/
+```
+
+Open the page, drag the BIOS ROMs and a disc image onto it (or use the pickers),
+choose the disc and press **Boot**. Files are stored in the browser's IndexedDB
+and never uploaded. `serve_web.py` sends the two headers the build needs:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Those make the page *cross-origin isolated*, which is what enables
+`SharedArrayBuffer` and therefore WASM threads — the Geartowns CD reader uses a
+read-ahead thread, so a plain static server without them will not work.
+
+### Deploy to Cloudflare Pages
+
+The build output is a plain static site, so any static host works. For Cloudflare
+Pages there are two one-step paths:
+
+- **Dashboard:** Workers & Pages → Create → Pages → Connect to Git, pick
+  `M5Devs/Asuka`, set the build command to `bash scripts/build_web.sh` and the
+  output directory to `web/dist`. `web/_headers` is applied automatically.
+- **CLI:** `wrangler pages deploy web/dist --project-name asuka`
+  (config in `wrangler.toml`).
+
+`.github/workflows/web.yml` does the same on every push to `main`: it builds the
+bundle, uploads it as an artefact, and deploys to Pages when
+`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets are set.
 
 ## Test
 
