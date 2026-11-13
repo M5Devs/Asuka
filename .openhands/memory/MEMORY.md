@@ -157,17 +157,51 @@ GPLv3. `LICENSE` pre-existing; `README.md` rewritten in Task 1.
 - **Timeline of the final clip** (t in s): 0-1 blank → 1-3.5 boot menu appears
   (8.8% ink, 640×400 letterboxed) → 3.5-5 boot menu static → 5-6 mode switch →
   6-10 blank 320×240 → 10-13 title screen (72% ink, ~20k colours) → 13-15 fade.
-- **Encoding commands that work**:
-  - MP4: `ffmpeg -framerate 60 -i .../frame_%04d.ppm -c:v libx264 -pix_fmt
-    yuv420p -preset slow -crf 18 -movflags +faststart` → 15 s, ~520 KB.
-  - GIF: `-vf "fps=20,split[a][b];[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" -loop 0`
-    → 300 frames, 640×480, ~1.1 MB (two-pass palette; good size/quality).
 - **Committed demo**: `docs/media/afterburner_boot.{mp4,gif}` embedded in the
   README (`docs/media/` is *not* git-ignored; `test_assets/` is).
 - **ffmpeg was missing** → `sudo apt-get install -y ffmpeg` (passwordless sudo
-  works; plain apt-get fails, the lists lock is root-owned). Installed 7.1.5.
-  Resets with the container, like other tools.
-- Full pipeline: `scripts/record_fmtowns_boot.sh` (runs emulator → builds
-  sequence → normalises → encodes → deletes raw frames), ~10 s end to end.
-  Rebuild of runner + `ctest` still 2/2 after the `--dump-frames` change.
-- Commits: `c1acb78` (recording pipeline + demo clip). Remote head `c1acb78`.
+  works; plain apt-get fails, the lists lock is root-owned). Resets with the
+  container, like other tools. Full pipeline: `scripts/record_fmtowns_boot.sh`.
+- Commits: `c1acb78` (recording pipeline + demo clip).
+
+## Task 5 — boot audio capture & analysis (verified)
+- **Runner audio capture**: `--dump-audio <wav>` writes 16-bit stereo 44100 Hz
+  PCM (Geartowns `GT_AUDIO_SAMPLE_RATE=44100`; verified via `wave`). Added
+  `--dump-audio-frames <path>` — a sidecar of **samples-per-frame, one per
+  line**. Geartowns emits a *variable* sample count per frame (~751 avg at 60 Hz
+  video, not 735: video is ~58.72 Hz), so this sidecar is what lets a recording
+  that cuts frames splice the audio to match (prefix-sum the counts).
+- **`--press <frame>:<key>`** injects GT_Keys presses (press at frame, release 4
+  frames later). **Verified injection actually reaches the guest**: instrumented
+  `Keyboard::KeyPressed` logged the accepted press, and `HasRoom(2)`/FIFO are
+  fine. So key-injection tests are valid.
+- **After Burner boot/title is authentically SILENT** (not a mixer bug):
+  - `--dump-audio` over 4200 frames → peak 0 for the whole boot+title; audio
+    only appears ~64-70 s (attract mode). Spectral check: those bursts are
+    harmonic (600+ strong FFT peaks) = FM music, plus some SFX noise.
+  - **`CDROM_COMMAND_CDDA_PLAY` (0x04) is NEVER issued** — instrumented the CD
+    dispatch over 300 s (18000 frames) incl. key presses; count = 0. TOC read
+    (`CommandTOCRead`) is correct and exposes all 8 tracks, so the game *can*
+    see the audio tracks but never plays them. The CUE's tracks 02-08 are real
+    PCM (peak 23845), so music data exists on the disc — it is simply never
+    triggered in the observed window.
+  - **Forcing all audio gates open** (`output && m_fm_gate/m_pcm_gate`) DOES
+    reveal continuous music from ~43-69 s: the game programs the FM chip, but
+    `m_state.output_control` bit 6 (0x4EC) stays 0 during title. This is not a
+    polarity bug — the guest genuinely leaves final output off, and MAME's
+    `fmtowns.cpp` doesn't even map the 0x4D5 mute write (`towns_sound_ctrl_w`
+    only handles PCM IRQ mask; port 0x4EC is documented "LED control"). Gate
+    semantics per Geartowns: 0x4D5 bit1=FM, bit0=PCM; 0x4EC bit6=final output.
+  - **Conclusion**: silent boot is correct emulation behaviour. Don't chase it
+    as a bug. Capturing actual music would need reaching gameplay far enough
+    for the game to start its CD-DA/FM music, or driving the boot menu into the
+    game (which never happened in the windows tested).
+- **Vendor is pristine**: all debug instrumentation was reverted; `git status`
+  on `plugins/fmtowns/vendor/` is clean. Re-verify with `grep -rc DBG`.
+- **New**: `scripts/analyze_fmtowns_audio.sh` (capture + per-second loudness /
+  tonality map, PASS/FAIL), `tests/audio_capture_test.sh` + ctest
+  `asuka_audio_capture` (WAV validity + sidecar match + non-silent, dummy
+  engine). `record_fmtowns_boot.sh` now captures audio, splices it to the frame
+  cut, and muxes AAC into the MP4 (`-map 0:v -map 1:a -c:a aac -shortest`).
+- Verified: clean rebuild 0 warnings, `ctest` **3/3**, ASan/LSan clean for both
+  a 60-frame dummy run and a 1300-frame real boot with `--dump-audio`.

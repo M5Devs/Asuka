@@ -29,7 +29,21 @@ struct Options {
     int frames = kDefaultFrames;
     std::string dump_frame;
     std::string dump_frames;
+    std::string dump_audio;
+    // Optional sidecar for --dump-audio: the samples-per-channel count of every
+    // frame, one per line. The engine emits a variable number of samples per
+    // frame, so this is what lets a recording that cuts frames splice the audio
+    // to match exactly.
+    std::string dump_audio_frames;
+    // (frame, key_code) pairs: the key is pressed at that frame and released a
+    // few frames later. Used to drive a boot menu or skip an intro.
+    std::vector<std::pair<int, uint32_t>> presses;
 };
+
+// Audio format of the engine interface: interleaved stereo s16.
+constexpr int kAudioSampleRate = 44100;
+constexpr int kAudioChannels = 2;
+constexpr int kAudioBytesPerSample = 2;
 
 void print_usage(const char* argv0) {
     std::fprintf(
@@ -42,6 +56,13 @@ void print_usage(const char* argv0) {
         "  --frames <N>          frames to run (default %d)\n"
         "  --dump-frame <path>   write the final frame to a binary PPM (P6)\n"
         "  --dump-frames <dir>   write every frame as <dir>/frame_%%04d.ppm\n"
+        "  --dump-audio <path>   write the captured audio as a 16-bit stereo\n"
+        "                        WAV at 44100 Hz\n"
+        "  --dump-audio-frames <path>\n"
+        "                        write the per-frame sample count of --dump-audio\n"
+        "                        to <path>, one count per line\n"
+        "  --press <frame>:<key> press a key at <frame> (decimal), release it a few\n"
+        "                        frames later; <key> is a GT_Keys code. Repeatable.\n"
         "  -h, --help            show this help\n"
         "\n"
         "If --plugin is omitted, a positional plugin path is used, then\n"
@@ -89,6 +110,25 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
             if (!take_value(argc, argv, i, opts.dump_frame)) return false;
         } else if (arg == "--dump-frames") {
             if (!take_value(argc, argv, i, opts.dump_frames)) return false;
+        } else if (arg == "--dump-audio") {
+            if (!take_value(argc, argv, i, opts.dump_audio)) return false;
+        } else if (arg == "--dump-audio-frames") {
+            if (!take_value(argc, argv, i, opts.dump_audio_frames)) return false;
+        } else if (arg == "--press") {
+            std::string spec;
+            if (!take_value(argc, argv, i, spec)) return false;
+            const size_t colon = spec.find(':');
+            if (colon == std::string::npos) {
+                std::fprintf(stderr, "error: --press wants <frame>:<key>\n");
+                return false;
+            }
+            const int frame = std::atoi(spec.substr(0, colon).c_str());
+            const long key = std::strtol(spec.substr(colon + 1).c_str(), nullptr, 0);
+            if (frame < 0 || key <= 0) {
+                std::fprintf(stderr, "error: bad --press value '%s'\n", spec.c_str());
+                return false;
+            }
+            opts.presses.emplace_back(frame, static_cast<uint32_t>(key));
         } else if (!arg.empty() && arg[0] == '-') {
             std::fprintf(stderr, "error: unknown option '%s'\n", arg.c_str());
             return false;
@@ -136,6 +176,89 @@ bool write_ppm(const std::string& path, const uint32_t* pixels, int width,
     std::fclose(file);
     return true;
 }
+
+// Streaming writer for a 16-bit stereo WAV. The RIFF sizes are patched once the
+// run finishes, so the file is written incrementally rather than buffered.
+class WavWriter {
+public:
+    ~WavWriter() { close(); }
+
+    bool open(const std::string& path) {
+        file_ = std::fopen(path.c_str(), "wb");
+        if (file_ == nullptr) {
+            std::fprintf(stderr, "error: cannot open '%s' for writing\n",
+                         path.c_str());
+            return false;
+        }
+        const uint32_t byte_rate =
+            static_cast<uint32_t>(kAudioSampleRate) * kAudioChannels *
+            kAudioBytesPerSample;
+        const uint16_t block_align =
+            static_cast<uint16_t>(kAudioChannels * kAudioBytesPerSample);
+        std::fwrite("RIFF", 1, 4, file_);
+        write_u32(0);  // patched in close()
+        std::fwrite("WAVEfmt ", 1, 8, file_);
+        write_u32(16);  // PCM chunk size
+        write_u16(1);   // PCM
+        write_u16(static_cast<uint16_t>(kAudioChannels));
+        write_u32(static_cast<uint32_t>(kAudioSampleRate));
+        write_u32(byte_rate);
+        write_u16(block_align);
+        write_u16(static_cast<uint16_t>(kAudioBytesPerSample * 8));
+        std::fwrite("data", 1, 4, file_);
+        data_size_offset_ = std::ftell(file_);
+        write_u32(0);  // patched in close()
+        return true;
+    }
+
+    // `samples` is interleaved stereo: frame_count * 2 values.
+    void write(const int16_t* samples, size_t frame_count) {
+        if (file_ == nullptr || samples == nullptr || frame_count == 0) {
+            return;
+        }
+        const size_t values = frame_count * kAudioChannels;
+        const size_t written = std::fwrite(samples, sizeof(int16_t), values, file_);
+        data_bytes_ += written * sizeof(int16_t);
+    }
+
+    void close() {
+        if (file_ == nullptr) {
+            return;
+        }
+        std::fflush(file_);
+        std::fseek(file_, 4, SEEK_SET);
+        write_u32(static_cast<uint32_t>(36 + data_bytes_));
+        std::fseek(file_, data_size_offset_, SEEK_SET);
+        write_u32(static_cast<uint32_t>(data_bytes_));
+        std::fclose(file_);
+        file_ = nullptr;
+    }
+
+    size_t data_bytes() const { return data_bytes_; }
+
+private:
+    void write_u32(uint32_t value) {
+        const uint8_t bytes[4] = {
+            static_cast<uint8_t>(value & 0xff),
+            static_cast<uint8_t>((value >> 8) & 0xff),
+            static_cast<uint8_t>((value >> 16) & 0xff),
+            static_cast<uint8_t>((value >> 24) & 0xff),
+        };
+        std::fwrite(bytes, 1, sizeof(bytes), file_);
+    }
+
+    void write_u16(uint16_t value) {
+        const uint8_t bytes[2] = {
+            static_cast<uint8_t>(value & 0xff),
+            static_cast<uint8_t>((value >> 8) & 0xff),
+        };
+        std::fwrite(bytes, 1, sizeof(bytes), file_);
+    }
+
+    std::FILE* file_ = nullptr;
+    long data_size_offset_ = 0;
+    size_t data_bytes_ = 0;
+};
 
 int run(const Options& opts) {
     std::string plugin_path = opts.plugin;
@@ -201,7 +324,32 @@ int run(const Options& opts) {
         }
     }
 
+    WavWriter wav;
+    if (!opts.dump_audio.empty() && !wav.open(opts.dump_audio)) {
+        return EXIT_FAILURE;
+    }
+
+    std::FILE* audio_frames_file = nullptr;
+    if (!opts.dump_audio_frames.empty()) {
+        audio_frames_file = std::fopen(opts.dump_audio_frames.c_str(), "w");
+        if (audio_frames_file == nullptr) {
+            std::fprintf(stderr, "error: cannot open '%s' for writing\n",
+                         opts.dump_audio_frames.c_str());
+            return EXIT_FAILURE;
+        }
+    }
+
     for (int frame = 0; frame < opts.frames; ++frame) {
+        // Inject scheduled key presses: press at the given frame, release a few
+        // frames later so the guest sees a clean edge.
+        for (const auto& press : opts.presses) {
+            if (press.first == frame) {
+                engine->send_input(press.second, true);
+            } else if (press.first >= 0 && frame == press.first + 4) {
+                engine->send_input(press.second, false);
+            }
+        }
+
         engine->step_frame();
 
         int w = 0;
@@ -218,6 +366,10 @@ int run(const Options& opts) {
         if (audio != nullptr && count > 0) {
             audio_samples = count;
             audio_seen = true;
+            wav.write(audio, count);
+        }
+        if (audio_frames_file != nullptr) {
+            std::fprintf(audio_frames_file, "%zu\n", count);
         }
 
         if (frame == 0 || frame + 1 == opts.frames ||
@@ -263,6 +415,20 @@ int run(const Options& opts) {
     std::printf("  framebuffer     : %dx%d XRGB8888\n", width, height);
     std::printf("  audio buffer    : %s (%zu samples/channel)\n",
                 audio_seen ? "present" : "empty", audio_samples);
+
+    if (!opts.dump_audio.empty()) {
+        wav.close();
+        const double seconds =
+            static_cast<double>(wav.data_bytes()) /
+            (kAudioSampleRate * kAudioChannels * kAudioBytesPerSample);
+        std::printf("  wrote audio to  : %s (%.1f s, %zu bytes PCM)\n",
+                    opts.dump_audio.c_str(), seconds, wav.data_bytes());
+    }
+    if (audio_frames_file != nullptr) {
+        std::fclose(audio_frames_file);
+        std::printf("  wrote audio map : %s (samples/frame)\n",
+                    opts.dump_audio_frames.c_str());
+    }
 
     engine.reset();
     loader.unload();

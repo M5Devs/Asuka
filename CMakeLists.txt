@@ -111,6 +111,22 @@ add_test(NAME asuka_smoke
     COMMAND asuka_runner
             "$<TARGET_FILE:asuka_dummy_engine>")
 
+# Exercises the runner's audio capture against the dummy engine: a valid 16-bit
+# stereo WAV, a per-frame sample map that matches it, and non-silent output.
+# Needs python3 with numpy for the WAV checks, so it is only registered when
+# that is available.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import numpy"
+                    RESULT_VARIABLE _asuka_numpy_result OUTPUT_QUIET ERROR_QUIET)
+    if(_asuka_numpy_result EQUAL 0)
+        add_test(NAME asuka_audio_capture
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_capture_test.sh"
+                    "$<TARGET_FILE:asuka_runner>"
+                    "$<TARGET_FILE:asuka_dummy_engine>")
+    endif()
+endif()
+
 # Exercises the FM Towns plugin's load -> init error path (no firmware is
 # available in CI, so init() is expected to fail gracefully).
 if(TARGET asuka_fmtowns)

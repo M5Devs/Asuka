@@ -169,7 +169,8 @@ tracked (everything lives under the git-ignored `test_assets/`).
 ```sh
 scripts/fetch_test_assets.sh      # BIOS from retrobios + After Burner disc
 scripts/verify_fmtowns_boot.sh    # boots it and asserts the frame has content
-scripts/record_fmtowns_boot.sh    # records the boot to MP4 + GIF
+scripts/record_fmtowns_boot.sh    # records the boot to MP4 + GIF (with audio)
+scripts/analyze_fmtowns_audio.sh  # captures audio and maps where sound appears
 ```
 
 `fetch_test_assets.sh` pulls the Fujitsu FM Towns ROM set from
@@ -195,4 +196,21 @@ rendering and animating. `record_fmtowns_boot.sh` produces it: it runs the
 emulator with every frame dumped, normalises the frames onto one canvas (the
 machine changes video mode mid-boot, and ffmpeg needs a constant frame size),
 cuts the long stretch where the machine sits on a byte-identical boot screen,
-and encodes H.264 plus an optimised GIF.
+and encodes H.264 plus an optimised GIF. The MP4 also carries a stereo audio
+track, spliced to the same frame cut.
+
+### Audio
+
+The runner captures the engine's audio with `--dump-audio <path>` (16-bit
+stereo WAV at 44100 Hz) and, with `--dump-audio-frames <path>`, a sidecar that
+records how many samples each frame produced. The engine emits a variable
+number of samples per frame, so that sidecar is what lets a recording that cuts
+frames splice the audio to match exactly.
+
+`analyze_fmtowns_audio.sh` records the audio and prints a per-second loudness
+and tonality map. On After Burner the map shows that the boot menu and the
+title screen are **silent**, and that sound only starts in the attract mode
+that follows: the guest never issues a CD-DA play command during boot or the
+title, and only programs the FM chip later. The audio path itself is healthy —
+the same capture records that later FM music and sound effects — so the silent
+intro is authentic behaviour, not a broken mixer.
