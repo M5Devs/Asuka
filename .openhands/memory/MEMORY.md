@@ -32,7 +32,8 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   `origin` URL is stale (prompts for a password); push with
   `git push "https://${GITHUB_TOKEN}@github.com/M5Devs/Asuka.git" main`.
 - Commits (task order): `04eb868`→`ab9c6d0`(foundation)→`b7cb447`(FM Towns
-  plugin)→`63df591`(audio fix)→`c1acb78`(recording)→`4ce8847`(boot audio).
+  plugin)→`63df591`(audio fix)→`c1acb78`(recording)→`4ce8847`(boot audio)→
+  `6ed3b4e`(asuka_play)→`f03749f`(WASM web shell).
 
 ## FM Towns plugin (Geartowns, `plugins/fmtowns`)
 - Only the emulation core + data deps are built; the SDL3/OpenGL/imgui/glad
@@ -72,6 +73,41 @@ Build: `cmake -B build && cmake --build build` (default type Release).
 - Headless testing needs `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy`; ctest
   `asuka_play_headless` runs the dummy engine 120 frames this way. Container has
   no display/audio device, so always set these for `asuka_play`.
+
+## Web / WebAssembly (`asuka_web`) — Task 5
+- Emscripten SDK **not preinstalled**; install to `/tmp/emsdk` (resets with the
+  container) and `source /tmp/emsdk/emsdk_env.sh`. `em++`/`emcmake` required —
+  plain `emcc` fails to link C++ (`undefined symbol: std::__2::thread…`).
+- Build: `scripts/build_web.sh` (emcmake configure → build → stage `web/dist/`).
+  `ASUKA_BUILD_WEB` auto-ON under `EMSCRIPTEN`; native runners/plugins skipped.
+- **No dlopen on WASM**: `plugins/fmtowns` now splits into `asuka_fmtowns_core`
+  (STATIC) + `asuka_fmtowns` (SHARED, native) + `asuka_fmtowns_static`
+  (STATIC, web). The web target calls `create_engine`/`destroy_engine` directly
+  via `plugins/fmtowns/fmtowns_plugin.hpp`.
+- **`-sUSE_SDL=2` must be a COMPILE option too**, not just a link option, or
+  `#include <SDL.h>` hits Emscripten's `fakesdl/SDL.h` stub (`#error "To use the
+  emscripten port of SDL…"`). Set `target_compile_options(... -sUSE_SDL=2)`.
+- Link flags that matter: `-sMODULARIZE=1 -sEXPORT_NAME=createAsukaModule`
+  (factory the hand-written shell instantiates; no generated HTML shell),
+  `-sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=134217728`, `-sPTHREAD_POOL_SIZE=8`
+  (the vendored CUE/BIN reader uses `std::thread` read-ahead), `-lidbfs.js`
+  (**required** or `Module.IDBFS` is undefined), `-sEXPORTED_RUNTIME_METHODS=`
+  must include `FS,IDBFS,callMain,ccall,cwrap,UTF8ToString`.
+- **Threads need cross-origin isolation** (COOP `same-origin` + COEP
+  `require-corp`) for `SharedArrayBuffer`. `scripts/serve_web.py` sends them
+  locally; `web/_headers` does it on Cloudflare Pages.
+- Shell `web/index.html`: drag&drop + pickers (`.rom`→BIOS, `.bin/.cue/.chd/…`
+  →media), disc selector, IndexedDB persistence (`FS.mount(Module.IDBFS)` over
+  `/bios` and `/media`, then `FS.syncfs(true)`), touch pad, fullscreen. Exposes
+  `window.asuka` for debugging.
+- **Verification gotcha**: SDL renders via WebGL *without*
+  `preserveDrawingBuffer`, so `ctx.drawImage(canvas)`/`getImageData` reads back
+  **blank** even though video is fine. Use a compositor screenshot
+  (puppeteer `elementHandle.screenshot()`) to check real output; a blank frame
+  is a tiny PNG, a real FM Towns screen is much larger.
+- Verified: WASM builds clean; headless Chromium (system `/usr/bin/chromium`,
+  `--use-gl=swiftshader`) loads real BIOS + After Burner, boots, renders at
+  **~57 fps** (717 frames/12 s, cross-origin isolated, 88 palette colours).
 
 ## Verified / known-good
 - `ctest` **4/4**: `asuka_smoke`, `asuka_audio_capture`, `asuka_fmtowns_loads`
