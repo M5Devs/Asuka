@@ -78,6 +78,35 @@ add_executable(asuka_runner src/main.cpp)
 target_link_libraries(asuka_runner PRIVATE asuka_core asuka_warnings)
 
 # ---------------------------------------------------------------------------
+# Interactive SDL runner (optional).
+#
+# Builds asuka_play, the real-time runner with a window, live audio and input.
+# It is only built when SDL2 is found, so headless/server builds that lack SDL
+# still produce asuka_runner. Point CMAKE_PREFIX_PATH at an SDL2 install or
+# turn the option off to skip it explicitly.
+# ---------------------------------------------------------------------------
+option(ASUKA_BUILD_SDL "Build the interactive SDL runner (asuka_play)" ON)
+if(ASUKA_BUILD_SDL)
+    find_package(SDL2 QUIET)
+    if(SDL2_FOUND)
+        add_executable(asuka_play src/interactive/main_sdl.cpp)
+        target_link_libraries(asuka_play PRIVATE asuka_core asuka_warnings)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(asuka_play PRIVATE SDL2::SDL2)
+        else()
+            # Older SDL2 packages export SDL2_INCLUDE_DIRS / SDL2_LIBRARIES.
+            target_include_directories(asuka_play PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(asuka_play PRIVATE ${SDL2_LIBRARIES})
+        endif()
+        message(STATUS "Interactive runner enabled: asuka_play (SDL2)")
+    else()
+        message(STATUS
+            "Interactive runner disabled: SDL2 not found "
+            "(install libsdl2-dev or set -DASUKA_BUILD_SDL=OFF)")
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # Plugins.
 # ---------------------------------------------------------------------------
 add_subdirectory(plugins/dummy)
@@ -133,4 +162,15 @@ if(TARGET asuka_fmtowns)
     add_test(NAME asuka_fmtowns_loads
         COMMAND asuka_runner --plugin "$<TARGET_FILE:asuka_fmtowns>")
     set_tests_properties(asuka_fmtowns_loads PROPERTIES WILL_FAIL TRUE)
+endif()
+
+# Drives the dummy engine through the interactive SDL runner's whole loop with
+# SDL's dummy video/audio backends, so it needs no display or sound device.
+if(TARGET asuka_play)
+    add_test(NAME asuka_play_headless
+        COMMAND asuka_play
+                --plugin "$<TARGET_FILE:asuka_dummy_engine>"
+                --frames 120 --headless)
+    set_tests_properties(asuka_play_headless PROPERTIES
+        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
 endif()

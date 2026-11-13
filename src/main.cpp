@@ -5,6 +5,7 @@
 // inspection without a GUI. Used to prove the plugin ABI, the loader and a
 // real engine (FM Towns via Geartowns) all work together.
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include "asuka/IEngineCore.hpp"
+#include "asuka/Input.hpp"
 #include "asuka/PluginLoader.hpp"
 
 namespace {
@@ -61,8 +63,10 @@ void print_usage(const char* argv0) {
         "  --dump-audio-frames <path>\n"
         "                        write the per-frame sample count of --dump-audio\n"
         "                        to <path>, one count per line\n"
-        "  --press <frame>:<key> press a key at <frame> (decimal), release it a few\n"
-        "                        frames later; <key> is a GT_Keys code. Repeatable.\n"
+        "  --press <frame>:<key> press a host key at <frame> (decimal) and release\n"
+        "                        it a few frames later. <key> is one of: up, down,\n"
+        "                        left, right, start, select, a, b, x, y, l, r.\n"
+        "                        Repeatable.\n"
         "  -h, --help            show this help\n"
         "\n"
         "If --plugin is omitted, a positional plugin path is used, then\n"
@@ -79,6 +83,29 @@ bool take_value(int argc, char** argv, int& i, std::string& out) {
     }
     out = argv[++i];
     return true;
+}
+
+// Parse a host key name for --press. Names are the asuka::Key enumerators,
+// case-insensitive (e.g. "start", "A", "left").
+asuka::Key parse_key(const std::string& name) {
+    std::string lower;
+    lower.reserve(name.size());
+    for (const char c : name) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower == "up") return asuka::Key::Up;
+    if (lower == "down") return asuka::Key::Down;
+    if (lower == "left") return asuka::Key::Left;
+    if (lower == "right") return asuka::Key::Right;
+    if (lower == "start") return asuka::Key::Start;
+    if (lower == "select") return asuka::Key::Select;
+    if (lower == "a") return asuka::Key::A;
+    if (lower == "b") return asuka::Key::B;
+    if (lower == "x") return asuka::Key::X;
+    if (lower == "y") return asuka::Key::Y;
+    if (lower == "l") return asuka::Key::L;
+    if (lower == "r") return asuka::Key::R;
+    return asuka::Key::None;
 }
 
 bool parse_args(int argc, char** argv, Options& opts, bool& help) {
@@ -123,8 +150,8 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
                 return false;
             }
             const int frame = std::atoi(spec.substr(0, colon).c_str());
-            const long key = std::strtol(spec.substr(colon + 1).c_str(), nullptr, 0);
-            if (frame < 0 || key <= 0) {
+            const asuka::Key key = parse_key(spec.substr(colon + 1));
+            if (frame < 0 || key == asuka::Key::None) {
                 std::fprintf(stderr, "error: bad --press value '%s'\n", spec.c_str());
                 return false;
             }

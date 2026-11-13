@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "asuka/Input.hpp"
 #include "geartowns.h"
 
 namespace asuka::plugins::fmtowns {
@@ -19,6 +20,28 @@ constexpr int kMaxHeight = GT_MAX_FRAME_BUFFER_HEIGHT;  // 768
 // so the destination must be at least that large (a per-frame estimate is too
 // small and overflows whenever the audio clock runs ahead of the video clock).
 constexpr size_t kMaxAudioValues = GT_AUDIO_BUFFER_SIZE;
+
+// Translate a host key to the FM Towns keyboard key it stands for. Movement
+// uses the cursor keys; the action buttons land on the letters FM Towns games
+// most often bind to fire.
+GT_Keys ToGtKey(Key key) {
+    switch (key) {
+        case Key::Up:     return GT_KEY_UP;
+        case Key::Down:   return GT_KEY_DOWN;
+        case Key::Left:   return GT_KEY_LEFT;
+        case Key::Right:  return GT_KEY_RIGHT;
+        case Key::Start:  return GT_KEY_RETURN;
+        case Key::Select: return GT_KEY_SPACE;
+        case Key::A:      return GT_KEY_SPACE;
+        case Key::B:      return GT_KEY_Z;
+        case Key::X:      return GT_KEY_X;
+        case Key::Y:      return GT_KEY_C;
+        case Key::L:      return GT_KEY_Z;
+        case Key::R:      return GT_KEY_X;
+        case Key::None:   break;
+    }
+    return GT_KEY_NONE;
+}
 
 }  // namespace
 
@@ -153,8 +176,15 @@ void FMTownsEngine::send_input(uint32_t key_code, bool pressed) {
     if (!initialized_) {
         return;
     }
-    // Key codes are GT_Keys values (see Geartowns common/types.h).
-    const GT_Keys key = static_cast<GT_Keys>(key_code);
+    // `key_code` is an asuka::Key value; translate it to the FM Towns keyboard
+    // key. The FM Towns has no gamepad port, so the d-pad and buttons the host
+    // sends are mapped onto the keyboard controls games expect: the cursor
+    // arrows for movement, Return for Start, and Space/Z/X/C for the action
+    // buttons.
+    const GT_Keys key = ToGtKey(static_cast<Key>(key_code));
+    if (key == GT_KEY_NONE) {
+        return;
+    }
     if (pressed) {
         core_->KeyPressed(key);
     } else {

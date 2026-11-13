@@ -13,17 +13,24 @@ Licensed under the [GNU General Public License v3.0](LICENSE).
   runner.
 - **Task 2 — first real engine.** The **FM Towns / Marty** core (Geartowns) is
   integrated as `plugins/fmtowns`.
+- **Task 3 — capture and analysis.** Headless boot recording (video + audio) and
+  an audio analysis of the FM Towns boot.
+- **Task 4 — interactive runner.** `asuka_play`, an SDL2 desktop runner with a
+  window, live audio playback and keyboard/gamepad input, so games can be played
+  in real time.
 
 ## Architecture
 
 The design follows the Libretro philosophy: the **host owns the main loop** and
 the **core exposes state**. A core never drives the loop itself; the host calls
-`step_frame()` and then *pulls* the framebuffer and audio buffers.
+`step_frame()` and then *pulls* the framebuffer and audio buffers. Two hosts
+share that contract: the headless `asuka_runner` (frame stepping, capture) and
+the interactive `asuka_play` (window, sound, input).
 
 ```
         ┌──────────────────────────┐
-        │        asuka_runner      │   host main loop
-        │  (src/main.cpp)          │
+        │  asuka_runner  asuka_play │   host main loop
+        │ (src/main.cpp) (interactive)│
         └───────────┬──────────────┘
                     │ uses
         ┌───────────▼──────────────┐
@@ -53,9 +60,16 @@ Every core implements `asuka::IEngineCore`:
 | `step_frame()` | advance exactly one video frame |
 | `get_framebuffer(w, h)` | pull current frame, XRGB8888 `uint32_t*` |
 | `get_audio_samples(n)` | pull interleaved stereo `int16_t` PCM, `n` per channel |
-| `send_input(key_code, pressed)` | feed an input event |
+| `send_input(key_code, pressed)` | feed a host key event (see `asuka::Key`) |
 | `reset()` | soft reset |
 | `shutdown()` | release resources |
+
+`send_input` takes a `uint32_t` so a core may define its own codes, but a
+generic host cannot know them. The shared, deliberately small `asuka::Key` enum
+(`include/asuka/Input.hpp`) is the contract: the host translates physical input
+to those keys and each core maps them to its own (the object-oriented analogue
+of Libretro's `RETRO_DEVICE_ID_JOYPAD_*`). A core ignores keys it has no use
+for.
 
 A plugin shared library exports exactly two C symbols:
 
@@ -74,11 +88,14 @@ destroyed before its library is unloaded.
 ```
 include/asuka/
   IEngineCore.hpp     unified plugin interface + factory typedefs
+  Input.hpp           host-level input keys (asuka::Key)
   Export.hpp          platform export/visibility macros
   PluginLoader.hpp    loader + RAII EngineInstance
 src/
   core/PluginLoader.cpp
-  main.cpp            CLI test runner
+  main.cpp            headless CLI runner (asuka_runner)
+  interactive/
+    main_sdl.cpp      interactive SDL2 runner (asuka_play)
 plugins/dummy/
   DummyEngine.{hpp,cpp}   mock core: colour-cycle video + sine audio
   dummy_plugin.cpp        exported create_engine/destroy_engine
@@ -125,6 +142,16 @@ cmake -B build
 cmake --build build
 ```
 
+The interactive runner (`asuka_play`) additionally needs **SDL2**. CMake finds
+it with `find_package(SDL2)`; if SDL2 is missing the headless `asuka_runner`
+still builds and CMake prints a note. To skip it explicitly:
+
+```sh
+cmake -B build -DASUKA_BUILD_SDL=OFF
+```
+
+On Debian/Ubuntu install `libsdl2-dev`.
+
 ## Run
 
 ```sh
@@ -154,11 +181,58 @@ The runner loads the plugin, initialises it, runs the requested frames while
 reporting the framebuffer size and audio sample count, then tears everything
 down and unloads the library.
 
+## Interactive runner (`asuka_play`)
+
+`asuka_play` is the real-time counterpart to `asuka_runner`: it opens a window,
+plays the engine's audio through SDL2, and feeds keyboard/gamepad input, so a
+game can actually be played.
+
+```sh
+./build/bin/asuka_play \
+    --plugin build/plugins/fmtowns/libasuka_fmtowns.so \
+    --bios /path/to/fmtowns-roms \
+    --media "/path/to/Afterburner (1987)(Sega)(Jp-En).cue"
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--plugin <path>` | engine plugin shared library to load (required) |
+| `--system <dir>` | engine system/asset directory (first `init()` argument) |
+| `--bios <dir>` | directory with BIOS/ROM files (second `init()` argument) |
+| `--media <path>` | media image (CHD, CUE/BIN, ISO, floppy) |
+| `--frames <N>` | stop after `N` frames (default: run until quit) |
+| `--width <W>` / `--height <H>` | initial window size (default 640×480) |
+| `--vsync` | additionally sync presentation to the display |
+| `--no-integer-scale` | allow fractional scaling instead of integers |
+| `--headless` | no window; still runs the loop and audio |
+| `--no-audio` | do not open an audio device |
+
+Controls: arrow keys are the d-pad, **Enter** is Start, **Space/Z/X/C** are the
+fire buttons, **R** resets, **F11** toggles fullscreen and **Esc** quits. A
+connected game controller is picked up automatically (d-pad, left stick, face
+buttons, shoulders).
+
+The host pulls one frame at a time and paces the loop to the audio clock: it
+queues each frame's PCM and sleeps only while the device buffer is fuller than
+a small target latency. That keeps sound continuous while the video tracks the
+machine's true rate (FM Towns video runs at ~58.7 Hz, and the engine emits a
+variable number of samples per frame). With `--no-audio` the loop falls back to
+a nominal 60 Hz. The framebuffer is uploaded to a streaming texture and drawn
+letterboxed with integer scaling and nearest-neighbour filtering, so the pixel
+art stays crisp; the texture is recreated when the machine changes video mode
+mid-session.
+
 ## Test
 
 ```sh
 ctest --test-dir build --output-on-failure
 ```
+
+The suite covers the dummy plugin through the headless runner (`asuka_smoke`),
+the audio capture path (`asuka_audio_capture`), the FM Towns plugin load
+(`asuka_fmtowns_loads`), and — when SDL2 is present — the interactive runner's
+whole loop driven headlessly with SDL's dummy video/audio backends
+(`asuka_play_headless`).
 
 ## Live boot verification
 
