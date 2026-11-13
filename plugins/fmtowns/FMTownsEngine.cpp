@@ -43,6 +43,29 @@ GT_Keys ToGtKey(Key key) {
     return GT_KEY_NONE;
 }
 
+// Translate a host key to a Game Port 1 (Towns Pad) button. FM Towns arcade
+// titles poll the pad rather than the keyboard, so every input is mirrored
+// there in addition to the keyboard. A/B map onto the original pad; X/Y/L/R
+// use the extra buttons the six-button pad exposes.
+u16 ToGamePadButton(Key key) {
+    switch (key) {
+        case Key::Up:     return GT_GAMEPAD_UP;
+        case Key::Down:   return GT_GAMEPAD_DOWN;
+        case Key::Left:   return GT_GAMEPAD_LEFT;
+        case Key::Right:  return GT_GAMEPAD_RIGHT;
+        case Key::Start:  return GT_GAMEPAD_RUN;
+        case Key::Select: return GT_GAMEPAD_SELECT;
+        case Key::A:      return GT_GAMEPAD_A;
+        case Key::B:      return GT_GAMEPAD_B;
+        case Key::X:      return GT_GAMEPAD_X;
+        case Key::Y:      return GT_GAMEPAD_Y;
+        case Key::L:      return GT_GAMEPAD_Z;
+        case Key::R:      return GT_GAMEPAD_C;
+        case Key::None:   break;
+    }
+    return 0;
+}
+
 }  // namespace
 
 FMTownsEngine::FMTownsEngine() = default;
@@ -176,20 +199,33 @@ void FMTownsEngine::send_input(uint32_t key_code, bool pressed) {
     if (!initialized_) {
         return;
     }
-    // `key_code` is an asuka::Key value; translate it to the FM Towns keyboard
-    // key. The FM Towns has no gamepad port, so the d-pad and buttons the host
-    // sends are mapped onto the keyboard controls games expect: the cursor
-    // arrows for movement, Return for Start, and Space/Z/X/C for the action
-    // buttons.
-    const GT_Keys key = ToGtKey(static_cast<Key>(key_code));
-    if (key == GT_KEY_NONE) {
+    // `key_code` is an asuka::Key value. Every input goes to the FM Towns
+    // keyboard *and* to Game Port 1 (Towns Pad): arcade titles poll the game
+    // port rather than the keyboard, so without the pad mirror the title
+    // screen of a game like After Burner ignores the controls. The keyboard
+    // mirror keeps the mapping useful for software that reads the keyboard.
+    const Key key = static_cast<Key>(key_code);
+    const GT_Keys gt_key = ToGtKey(key);
+    if (gt_key != GT_KEY_NONE) {
+        if (pressed) {
+            core_->KeyPressed(gt_key);
+        } else {
+            core_->KeyReleased(gt_key);
+        }
+    }
+
+    const u16 button = ToGamePadButton(key);
+    if (button == 0) {
         return;
     }
     if (pressed) {
-        core_->KeyPressed(key);
+        gamepad_buttons_ |= button;
     } else {
-        core_->KeyReleased(key);
+        gamepad_buttons_ &= static_cast<u16>(~button);
     }
+    GT_GamePad_State state = {};
+    state.buttons = gamepad_buttons_;
+    core_->GetInput()->SetGamePadState(GT_CONTROLLER_1, state);
 }
 
 void FMTownsEngine::reset() {
@@ -200,6 +236,11 @@ void FMTownsEngine::reset() {
     frame_width_ = 0;
     frame_height_ = 0;
     audio_samples_per_channel_ = 0;
+
+    // Drop any held pad buttons so a reset does not leave Game Port 1 stuck.
+    gamepad_buttons_ = 0;
+    GT_GamePad_State state = {};
+    core_->GetInput()->SetGamePadState(GT_CONTROLLER_1, state);
 }
 
 void FMTownsEngine::shutdown() {
@@ -207,6 +248,7 @@ void FMTownsEngine::shutdown() {
         core_->PowerOff();
         core_.reset();
     }
+    gamepad_buttons_ = 0;
     framebuffer_.clear();
     framebuffer_.shrink_to_fit();
     audio_.clear();

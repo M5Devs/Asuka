@@ -57,6 +57,7 @@ struct WebState {
     bool running = false;
     bool audio_enabled = true;
     long long frames = 0;
+    unsigned long long input_events = 0;
     unsigned prev_dirs = 0;
     std::string last_error;
 };
@@ -350,6 +351,7 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
 
     g_state.last_error.clear();
     g_state.frames = 0;
+    g_state.input_events = 0;
     return 1;
 }
 
@@ -387,6 +389,12 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_key(uint32_t key, int pressed) {
     if (g_state.engine != nullptr) {
         g_state.engine->send_input(key, pressed != 0);
     }
+    g_state.input_events++;
+}
+
+// Number of key events accepted since init (diagnostics / test hook).
+EMSCRIPTEN_KEEPALIVE int asuka_web_input_events() {
+    return static_cast<int>(g_state.input_events);
 }
 
 EMSCRIPTEN_KEEPALIVE int asuka_web_running() {

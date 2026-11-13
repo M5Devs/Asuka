@@ -76,3 +76,51 @@ if nonblack * 100 // pixels < 10:
     sys.exit(1)
 print("PASS: frame contains active, varied video")
 PY
+
+# Assert host input actually reaches the machine. After Burner polls Game Port 1
+# (the Towns Pad) rather than the keyboard, so the runner's --press must be
+# mirrored there or the title screen ignores every control. Boot twice from the
+# same frame count, once idle and once holding Start/A near the end, and require
+# the two final frames to differ: identical frames mean the input was dropped.
+echo
+echo "== Input routing check (Game Port 1 / Towns Pad) =="
+idle="$out.idle.ppm"
+pressed="$out.pressed.ppm"
+press_frames=$((frames + 1200))
+
+"$runner" --plugin "$plugin" --bios "$bios_dir" --media "$cue" \
+    --frames "$press_frames" --dump-frame "$idle" >/tmp/asuka_input_idle.log 2>&1 \
+    || fail "idle run exited non-zero"
+"$runner" --plugin "$plugin" --bios "$bios_dir" --media "$cue" \
+    --frames "$press_frames" \
+    --press $((press_frames - 100)):start \
+    --press $((press_frames - 80)):a \
+    --press $((press_frames - 60)):start \
+    --dump-frame "$pressed" >/tmp/asuka_input_press.log 2>&1 \
+    || fail "pressed run exited non-zero"
+
+python3 - "$idle" "$pressed" <<'PY' || exit 1
+import sys
+
+def load(path):
+    with open(path, "rb") as fh:
+        assert fh.readline().strip() == b"P6", "not a binary PPM"
+        w, h = map(int, fh.readline().split())
+        fh.readline()
+        return w, h, fh.read()
+
+w, h, idle = load(sys.argv[1])
+w2, h2, pressed = load(sys.argv[2])
+assert (w, h) == (w2, h2), "frame size changed between runs"
+
+changed = sum(1 for i in range(0, w * h * 3, 3) if idle[i:i + 3] != pressed[i:i + 3])
+pct = 100 * changed // (w * h)
+print(f"  changed: {changed} px ({pct}% of the frame) after Start/A presses")
+
+if changed == 0:
+    print("FAIL: input had no effect - Game Port 1 routing is broken", file=sys.stderr)
+    sys.exit(1)
+print("PASS: host input reaches the machine")
+PY
+
+rm -f "$idle" "$pressed"

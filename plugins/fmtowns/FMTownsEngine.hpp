@@ -62,6 +62,11 @@ private:
     int machine_model_ = -1;  // GT_MACHINE_AUTO
     bool boot_from_cd_ = false;
 
+    // Latched Game Port 1 (Towns Pad) button state, mirrored to the core on
+    // every send_input(). Geartowns stores the pad as a level, not an edge, so
+    // the host has to track which buttons are held.
+    uint16_t gamepad_buttons_ = 0;
+
     // Owned render/audio targets handed to Geartowns each frame.
     std::vector<uint32_t> framebuffer_;
     std::vector<int16_t> audio_;

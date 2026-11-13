@@ -109,6 +109,91 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   `--use-gl=swiftshader`) loads real BIOS + After Burner, boots, renders at
   **~57 fps** (717 frames/12 s, cross-origin isolated, 88 palette colours).
 
+## Standalone web deploy (`m5dev-tests/asukatest`) — 2026-11-13
+- The static site is deployed to a **separate repo**, `m5dev-tests/asukatest`
+  (was LICENSE+README only; push straight to `main`). The current Asuka source
+  lives in *another* workspace; the deploy target is a near-empty repo cloned
+  for this purpose.
+- Bundle = `web/dist/*` → repo root: `index.html`, `asuka_web.js`,
+  `asuka_web.wasm`, `_headers`, plus universal-host extras `coi-serviceworker.min.js`,
+  `.nojekyll`, `README.md`.
+- **GitHub Pages has no custom headers**, so `coi-serviceworker.min.js`
+  (gzuidhof, v0.1.7) is the isolation source there; its `<script>` must be the
+  **first thing in `<head>`**. It registers a SW and reloads the page once.
+  Cloudflare Pages still uses `_headers`.
+- **IDBFS stall on the SW-isolated path (real bug, fixed)**: under
+  coi-serviceworker, Emscripten's `FS.syncfs` never calls back — a plain
+  `indexedDB.open('/media'|'/bios')` **times out**, while a random DB name
+  succeeds and the *header* path is fine. `mountStorage()` awaited `syncfs`, so
+  boot hung forever (canvas showed POST, frames stuck at 0). Fix in
+  `web/index.html` `syncfs()`: 3 s timeout → set `idbfsSlow`, resolve and carry
+  on (files stay in memory); later calls fire-and-forget so persistence can
+  recover. Boot then works on both hosts (verified PASS: header-less **and**
+  header path, real BIOS + After Burner).
+- Verify a header-less deploy by serving with plain `python3 -m http.server`
+  (no COOP/COEP) and booting via `/tmp/webtest/verify_coi.js` (waits for
+  `crossOriginIsolated` before uploading — the SW reload wipes file inputs).
+- Build: `source /tmp/emsdk/emsdk_env.sh && bash scripts/build_web.sh` (emcc
+  7.0.0 in this container).
+
+### Turnkey auto-boot deploy (commit `5716d3b`, 2026-11-13)
+- Site now boots with **zero uploads**: bundled BIOS + After Burner live in
+  `assets/`, described by `assets/manifest.json`; the shell streams them into
+  `/bios` + `/media` then `asuka_web_init`+`start`. No manifest → falls back to
+  the manual drop-zone. `mountFiles()` only clears a dir when the user supplied
+  files for it, so manual Boot can't wipe auto-loaded assets.
+- **`FMT_FNT.ROM` is REQUIRED** (`firmware.cpp IsRequired` excludes only
+  FONT20/SERIAL/EXTENSION) — ship all 7: SYS, DOS, FNT, DIC, F20, MYTOWNS,
+  MAR_EX0-3. `Abdess/retrobios` (`main`, `bios/Fujitsu/FM Towns/`) matches the
+  known-good set byte-for-byte.
+- **Media must be split**: GitHub's 100 MB hard limit rejects the 230 MB BIN.
+  Split into 8 per-track BINs (2352 B sectors; range = [index01_lba*2352,
+  next_index01_lba*2352)) + a **multi-`FILE` CUE** keeping each `PREGAP`; the
+  reader's `total_pregap_length` keeps Track 2 at LBA 3180, i.e. the TOC is
+  identical to the original. Non-URI paths use `DefaultLoadOptions`
+  (`track_files_start_at_index1=false`).
+- `_headers` caches `/assets/*` immutable (1 yr) and revalidates the manifest.
+- Verified: fresh clone of the pushed repo served header-less auto-boots
+  (7 firmware components, 8-track CUE, ~181 frames, touchpad auto-on).
+- **Build is deterministic**: a clean `build_web.sh` reproduced byte-identical
+  `asuka_web.wasm` (`d4569a57…`) / `.js` (`44d2afe9…`), so a rebuild is a valid
+  check that deployed binaries match source.
+- Caveat: the deploy repo is **public** and now hosts copyrighted BIOS +
+  After Burner; the README says so and how to remove them.
+
+### Minimalist shell + input fix (deploy `846dfe7`, 2026-11-13)
+- **The web C entry point is `asuka_web_key(key, pressed)`** — there is no
+  `asuka_web_send_input`. `key` is the `asuka::Key` value (Input.hpp order:
+  up=1,down=2,left=3,right=4,start=5,select=6,a=7,b=8,x=9,y=10,l=11,r=12).
+  FMTowns maps A→SPACE, B→Z, Start→RETURN, Select→SPACE.
+- **Controls-silently-dead bug**: the old shell's `KEY` map used capitalised
+  names (`Up`,`A`) while the touchpad `data-key` and `SCAN_TO_KEY` used
+  lowercase (`up`,`a`), so `KEY[name]` was `undefined` and `sendKey` returned
+  before calling the engine — no input ever registered. Keep the names lowercase
+  everywhere and normalise in one send funnel.
+- Keyboard sink is **idempotent** (`Keyboard::KeyPressed` early-returns on a
+  repeat), so redundant JS + SDL2 paths are safe. Emscripten SDL2 listens on
+  **`window`**, so keep window-level key listeners; still focus the canvas.
+- **Game Port 1 (Towns Pad) is the real input path for arcade titles** (Task 6):
+  `FMTownsEngine::send_input` used to feed only the FM Towns *keyboard*, so After
+  Burner's title screen ignored every control. Geartowns: Game Port 1 = I/O
+  `0x04D0` → `Input` index 0 (`GT_CONTROLLER_1`); `0x04D2` → index 1; the core
+  only ever polls port 1. `Input::SetGamePadState(port, GT_GamePad_State{buttons})`
+  is a **level** (keep a latched `gamepad_buttons_` mask; clear on reset/shutdown).
+  `Input::ReadGamePad` maps `GT_GAMEPAD_*` to the 6 status lines; `0x3F` = idle.
+  Port 1 defaults to `GT_CONTROLLER_ORIGINAL_GAMEPAD` (all buttons work).
+  Key→pad: dirs→dirs, Start→RUN, Select→SELECT, A/B→A/B, X/Y→X/Y, L/R→Z/C.
+  `GeartownsCore::GetInput()` returns the `Input*`.
+- `asuka_web_input_events()` in `src/web/main_web.cpp` counts every
+  `asuka_web_key` call (reset on init) — the headless test's proof that input
+  reaches the engine.
+- Minimal shell: pure-black body, stage `min(100vw,133.3333vh)` ×
+  `min(75vw,100vh)` = exact 4:3 letterbox, `image-rendering:pixelated`. Pad =
+  d-pad bottom-left, A/B bottom-right, START top-centre, shown only on touch
+  devices. Loader fades out; failure = error + Retry (no upload UI at all).
+- Container reset wipes `/tmp` (incl. `/tmp/emsdk`) and uninstalls `cmake`;
+  reinstall with `sudo apt-get install -y cmake` + emsdk `install/activate latest`.
+
 ## Verified / known-good
 - `ctest` **4/4**: `asuka_smoke`, `asuka_audio_capture`, `asuka_fmtowns_loads`
   (WILL_FAIL, no-BIOS error path), `asuka_play_headless`.

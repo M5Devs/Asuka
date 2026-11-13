@@ -3,20 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0f1a">
-<title>Asuka — FM Towns in the browser</title>
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<title>Asuka — FM Towns</title>
 <style>
   :root {
-    --bg: #070a12;
-    --panel: #111725;
-    --panel-2: #182033;
-    --ink: #e8ecf6;
-    --muted: #8b97b4;
-    --accent: #ff5d8f;
-    --accent-2: #38d9c8;
-    --edge: #263149;
-    --shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
-    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --cell: clamp(46px, 9.5vmin, 70px);
+    --pad-gap: 8px;
+    --edge: rgba(255, 255, 255, 0.16);
+    --key-bg: rgba(255, 255, 255, 0.09);
+    --key-bg-on: rgba(255, 255, 255, 0.34);
   }
 
   * { box-sizing: border-box; }
@@ -24,393 +20,255 @@
   html, body {
     margin: 0;
     height: 100%;
-    background:
-      radial-gradient(1200px 700px at 50% -10%, #1b2440 0%, transparent 60%),
-      var(--bg);
-    color: var(--ink);
-    font-family: var(--mono);
-    -webkit-font-smoothing: antialiased;
-    overscroll-behavior: none;
-  }
-
-  body {
-    display: flex;
-    flex-direction: column;
-    min-height: 100dvh;
-  }
-
-  header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--edge);
-    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
-    flex: 0 0 auto;
-  }
-
-  header .logo {
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    font-size: 15px;
-    text-transform: uppercase;
-    color: var(--ink);
-  }
-  header .logo b { color: var(--accent); }
-  header .tag { color: var(--muted); font-size: 12px; }
-
-  .spacer { flex: 1 1 auto; }
-
-  .btn {
-    appearance: none;
-    border: 1px solid var(--edge);
-    background: var(--panel-2);
-    color: var(--ink);
-    border-radius: 9px;
-    padding: 8px 12px;
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-    transition: border-color .15s, background .15s, transform .05s;
-    white-space: nowrap;
-  }
-  .btn:hover { border-color: var(--accent-2); background: #1d2740; }
-  .btn:active { transform: translateY(1px); }
-  .btn[disabled] { opacity: .45; cursor: not-allowed; }
-  .btn.primary { border-color: var(--accent); background: #2a1830; }
-  .btn.primary:hover { background: #3a1f42; }
-
-  main {
-    flex: 1 1 auto;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 340px;
-    gap: 14px;
-    padding: 14px;
-    min-height: 0;
-  }
-
-  @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; }
-    aside { order: 2; }
-  }
-
-  .stage {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     background: #000;
-    border: 1px solid var(--edge);
-    border-radius: 14px;
+    color: #fff;
     overflow: hidden;
-    box-shadow: var(--shadow);
-    min-height: 260px;
+    overscroll-behavior: none;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Centre the letterboxed 4:3 stage on a pure-black field. */
+  body { display: grid; place-items: center; }
+
+  #stage {
+    position: relative;
+    width: min(100vw, 133.3333vh);
+    height: min(75vw, 100vh);
+    background: #000;
+    overflow: hidden;
   }
 
   #canvas {
     display: block;
     width: 100%;
     height: 100%;
+    background: #000;
+    outline: none;
+    touch-action: none;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
-    background: #000;
-    touch-action: none;
   }
 
-  .overlay {
+  /* ---- Minimal loader ---- */
+  #loader {
     position: absolute;
     inset: 0;
+    z-index: 30;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    transition: opacity .5s ease;
+  }
+  #loader.hidden { opacity: 0; pointer-events: none; }
+  #loader .brand {
+    font-size: clamp(18px, 3.6vw, 30px);
+    letter-spacing: .42em;
+    text-transform: uppercase;
+    padding-left: .42em;
+  }
+  #loader .brand b { color: #ff5d8f; }
+  #loader .bar {
+    width: min(360px, 72vw);
+    height: 5px;
+    border-radius: 999px;
+    background: #191919;
+    overflow: hidden;
+  }
+  #loader .bar > i {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: #f2f2f2;
+    transition: width .18s ease;
+  }
+  #loader .pct { font-size: 12px; color: #8a8a8a; letter-spacing: .1em; }
+  #loader .status {
+    font-size: 11px;
+    color: #8a8a8a;
+    min-height: 1.1em;
+    max-width: 52ch;
+    text-align: center;
+    padding: 0 16px;
+    word-break: break-word;
+  }
+  #loader .status.err { color: #ff5d8f; }
+  #loader .retry {
+    margin-top: 4px;
+    background: #161616;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 8px 18px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #loader .retry:hover { border-color: #ff5d8f; }
+
+  /* ---- Touch overlay ---- */
+  #pad { position: fixed; inset: 0; z-index: 15; display: none; pointer-events: none; }
+  #pad.show { display: block; }
+
+  #pad .key {
+    pointer-events: auto;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-direction: column;
-    gap: 10px;
-    text-align: center;
-    padding: 24px;
-    background: rgba(4, 7, 14, 0.82);
-    backdrop-filter: blur(3px);
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.5;
-  }
-  .overlay.hidden { display: none; }
-  .overlay h2 { margin: 0; color: var(--ink); font-size: 16px; letter-spacing: .04em; }
-  .overlay .hint { max-width: 46ch; }
-
-  .dropzone {
-    border: 2px dashed var(--edge);
-    border-radius: 12px;
-    padding: 18px;
-    width: min(520px, 90%);
-    transition: border-color .15s, background .15s;
-  }
-  .dropzone.hot { border-color: var(--accent); background: rgba(255, 93, 143, 0.08); }
-
-  aside {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    min-height: 0;
-    overflow: auto;
-  }
-
-  .card {
-    background: var(--panel);
+    background: var(--key-bg);
     border: 1px solid var(--edge);
     border-radius: 14px;
-    padding: 14px;
-  }
-  .card h3 {
-    margin: 0 0 10px;
-    font-size: 12px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .filelist { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; }
-  .filelist .row {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--ink);
-    background: var(--panel-2); border: 1px solid var(--edge);
-    border-radius: 8px; padding: 7px 9px;
-  }
-  .filelist .row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
-  .filelist .row .sz { color: var(--muted); font-size: 11px; }
-  .filelist .row .x {
-    border: none; background: transparent; color: var(--muted);
-    cursor: pointer; font: inherit; font-size: 14px; line-height: 1; padding: 0 2px;
-  }
-  .filelist .row .x:hover { color: var(--accent); }
-  .empty { color: var(--muted); font-size: 12px; margin-top: 6px; }
-
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; }
-
-  select {
-    width: 100%;
-    background: var(--panel-2);
-    color: var(--ink);
-    border: 1px solid var(--edge);
-    border-radius: 9px;
-    padding: 9px 10px;
+    color: #fff;
     font: inherit;
-    font-size: 12px;
-  }
-
-  label.check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-top: 10px; }
-
-  #log {
-    font-size: 11px;
-    line-height: 1.55;
-    color: var(--muted);
-    max-height: 180px;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-  }
-  #log .ok { color: var(--accent-2); }
-  #log .err { color: var(--accent); }
-
-  .badge {
-    display: inline-block;
-    font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid var(--edge);
-    color: var(--muted);
-  }
-  .badge.ok { color: var(--accent-2); border-color: #1c5a54; }
-  .badge.warn { color: #ffcf6b; border-color: #6a5620; }
-
-  /* ---- Touch gamepad ---- */
-  #touchpad {
-    position: fixed;
-    inset: auto 0 0 0;
-    display: none;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 16px;
-    padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
-    pointer-events: none;
-    z-index: 20;
-  }
-  #touchpad.show { display: flex; }
-  #touchpad .cluster { pointer-events: auto; display: grid; gap: 8px; }
-  #touchpad .dpad { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px); }
-  #touchpad .face { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 54px); }
-  .pad {
-    -webkit-user-select: none; user-select: none;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(24, 32, 51, 0.82);
-    border: 1px solid var(--edge);
-    color: var(--ink);
-    border-radius: 12px;
-    font-size: 13px;
-    backdrop-filter: blur(2px);
+    font-size: 15px;
+    padding: 0;
     touch-action: none;
+    backdrop-filter: blur(3px);
+    transition: background .08s ease, transform .05s ease;
   }
-  .pad:active, .pad.on { background: rgba(255, 93, 143, 0.35); border-color: var(--accent); }
-  .pad.sys { font-size: 11px; grid-column: span 3; }
-  .pad.blank { visibility: hidden; }
+  #pad .key.on { background: var(--key-bg-on); transform: scale(.94); }
 
-  footer {
-    flex: 0 0 auto;
-    padding: 8px 16px 14px;
-    color: var(--muted);
-    font-size: 11px;
-    text-align: center;
+  #pad .dpad {
+    position: absolute;
+    left: calc(16px + env(safe-area-inset-left));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(3, var(--cell));
+    grid-template-rows: repeat(3, var(--cell));
+    gap: var(--pad-gap);
   }
-  footer a { color: var(--accent-2); }
+  #pad .dpad .key { width: var(--cell); height: var(--cell); }
+  #pad .dpad .up    { grid-area: 1 / 2; }
+  #pad .dpad .left  { grid-area: 2 / 1; }
+  #pad .dpad .right { grid-area: 2 / 3; }
+  #pad .dpad .down  { grid-area: 3 / 2; }
+
+  #pad .actions {
+    position: absolute;
+    right: calc(16px + env(safe-area-inset-right));
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  #pad .actions .key {
+    width: calc(var(--cell) * 1.12);
+    height: calc(var(--cell) * 1.12);
+    border-radius: 50%;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #pad .actions .a { background: rgba(255, 93, 143, 0.20); }
+  #pad .actions .a.on { background: rgba(255, 93, 143, 0.55); }
+
+  #pad .start {
+    position: absolute;
+    top: calc(12px + env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    height: calc(var(--cell) * 0.6);
+    padding: 0 20px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .18em;
+  }
+  #pad .start.on { transform: translateX(-50%) scale(.94); }
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">Asu<b>k</b>a</div>
-  <div class="tag">FM Towns · Marty — in your browser</div>
-  <div class="spacer"></div>
-  <button class="btn" id="btn-pad" title="Toggle the on-screen gamepad">Touch pad</button>
-  <button class="btn" id="btn-full" title="Fullscreen (F11)">Fullscreen</button>
-  <button class="btn" id="btn-reset" disabled>Reset</button>
-  <button class="btn primary" id="btn-run" disabled>Run</button>
-</header>
+<div id="stage">
+  <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
 
-<main>
-  <section class="stage">
-    <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
-
-    <div class="overlay" id="overlay">
-      <h2 id="overlay-title">Drop your FM Towns files</h2>
-      <div class="dropzone" id="dropzone">
-        <div class="hint" id="overlay-hint">
-          Drag &amp; drop the <b>BIOS ROMs</b> (FMT_SYS.ROM, FMT_DOS.ROM, …)
-          and a game disc (<b>CHD</b>, <b>CUE+BIN</b> or <b>ISO</b>) anywhere on
-          this page — or use the buttons on the right. Files are stored locally
-          in your browser and never uploaded.
-        </div>
-      </div>
-      <div class="badge" id="coi-badge">checking…</div>
-    </div>
-  </section>
-
-  <aside>
-    <div class="card">
-      <h3>BIOS / firmware</h3>
-      <div class="controls">
-        <button class="btn" id="pick-bios">Choose files…</button>
-        <input type="file" id="file-bios" multiple hidden
-               accept=".rom,.ROM,.bin,.BIN">
-      </div>
-      <div class="filelist" id="list-bios"></div>
-    </div>
-
-    <div class="card">
-      <h3>Game media</h3>
-      <div class="controls">
-        <button class="btn" id="pick-media">Choose files…</button>
-        <input type="file" id="file-media" multiple hidden
-               accept=".chd,.CHD,.cue,.CUE,.bin,.BIN,.iso,.ISO,.img,.IMG,.d88,.D88,.hdm,.HDM">
-      </div>
-      <div class="filelist" id="list-media"></div>
-      <label class="check"><input type="checkbox" id="persist" checked> Keep files between reloads (IndexedDB)</label>
-    </div>
-
-    <div class="card">
-      <h3>Boot from</h3>
-      <select id="media-select" disabled></select>
-      <div class="controls" style="margin-top:10px">
-        <button class="btn primary" id="btn-boot" disabled>Boot</button>
-        <button class="btn" id="btn-clear">Clear all files</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Log</h3>
-      <pre id="log"></pre>
-    </div>
-  </aside>
-</main>
-
-<div id="touchpad">
-  <div class="cluster dpad">
-    <div class="pad blank"></div>
-    <div class="pad" data-key="up">▲</div>
-    <div class="pad blank"></div>
-    <div class="pad" data-key="left">◀</div>
-    <div class="pad blank"></div>
-    <div class="pad" data-key="right">▶</div>
-    <div class="pad blank"></div>
-    <div class="pad" data-key="down">▼</div>
-    <div class="pad blank"></div>
-  </div>
-  <div class="cluster face">
-    <div class="pad" data-key="x">X</div>
-    <div class="pad" data-key="y">Y</div>
-    <div class="pad" data-key="l">L</div>
-    <div class="pad" data-key="b">B</div>
-    <div class="pad" data-key="a">A</div>
-    <div class="pad" data-key="r">R</div>
-    <div class="pad sys" data-key="select">SELECT</div>
-    <div class="pad sys" data-key="start">START</div>
+  <div id="loader">
+    <div class="brand">Asu<b>k</b>a</div>
+    <div class="bar"><i id="loader-bar"></i></div>
+    <div class="pct" id="loader-pct">0%</div>
+    <div class="status" id="loader-status">Preparing…</div>
+    <button class="retry" id="loader-retry" hidden>Retry</button>
   </div>
 </div>
 
-<footer>
-  Keyboard: arrows = d-pad · Enter = Start · Space/Z/X/C = fire · R = reset ·
-  F11 = fullscreen. Source &amp; docs:
-  <a href="https://github.com/M5Devs/Asuka">M5Devs/Asuka</a>.
-</footer>
+<div id="pad" aria-hidden="true">
+  <button class="key start" data-key="start" tabindex="-1">START</button>
+  <div class="dpad">
+    <button class="key up"    data-key="up"    tabindex="-1">▲</button>
+    <button class="key left"  data-key="left"  tabindex="-1">◀</button>
+    <button class="key right" data-key="right" tabindex="-1">▶</button>
+    <button class="key down"  data-key="down"  tabindex="-1">▼</button>
+  </div>
+  <div class="actions">
+    <button class="key b" data-key="b" tabindex="-1">B</button>
+    <button class="key a" data-key="a" tabindex="-1">A</button>
+  </div>
+</div>
+
+<pre id="log" hidden></pre>
 
 <script src="asuka_web.js"></script>
 <script>
 "use strict";
 
 // Host key identifiers — must match enum class asuka::Key in
-// include/asuka/Input.hpp (order matters).
+// include/asuka/Input.hpp (order matters). Keys are lowercase so they line up
+// directly with the touch overlay's data-key attributes.
 const KEY = {
-  None: 0, Up: 1, Down: 2, Left: 3, Right: 4,
-  Start: 5, Select: 6, A: 7, B: 8, X: 9, Y: 10, L: 11, R: 12,
+  none: 0, up: 1, down: 2, left: 3, right: 4,
+  start: 5, select: 6, a: 7, b: 8, x: 9, y: 10, l: 11, r: 12,
 };
 
 const BIOS_DIR = "/bios";
 const MEDIA_DIR = "/media";
+const ASSET_BASE = "./assets";
 
 const el = (id) => document.getElementById(id);
 const logEl = el("log");
 function log(msg, cls) {
+  (cls === "err" ? console.error : console.log)("[asuka] " + msg);
+  if (!logEl) return;
   const line = document.createElement("div");
   if (cls) line.className = cls;
   line.textContent = msg;
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
-  // Mirror to the console for debugging.
-  (cls === "err" ? console.error : console.log)("[asuka] " + msg);
 }
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-const state = {
-  Module: null,
-  biosFiles: new Map(),   // name -> File
-  mediaFiles: new Map(),  // name -> File
-  running: false,
-  booting: false,
-};
+const state = { Module: null, running: false, booting: false };
 
 // ---------------------------------------------------------------------------
-// Cross-origin isolation check (threads / SharedArrayBuffer need COOP+COEP)
+// Input: a single funnel into the engine's C API.
+//
+// asuka_web_key(key, pressed) is the exported entry point (see
+// src/web/main_web.cpp). The engine's keyboard sink is idempotent, so the
+// on-screen pad and the physical keyboard can both feed it without double
+// events mattering. `pressed` tracks held keys so we can release everything on
+// focus loss and never leave a button stuck down.
 // ---------------------------------------------------------------------------
-function updateCoBadge() {
-  const badge = el("coi-badge");
-  if (window.crossOriginIsolated) {
-    badge.textContent = "cross-origin isolated ✓ — threads available";
-    badge.className = "badge ok";
-  } else {
-    badge.textContent =
-      "not cross-origin isolated — serve with COOP/COEP headers (see web/_headers)";
-    badge.className = "badge warn";
-  }
+const pressed = new Set();
+
+function sendInput(name, on) {
+  if (!state.Module) return;
+  const id = KEY[String(name).toLowerCase()];
+  if (id === undefined) return;
+  if (on) { if (pressed.has(name)) return; pressed.add(name); }
+  else { if (!pressed.has(name)) return; pressed.delete(name); }
+  state.Module.ccall("asuka_web_key", null, ["number", "number"], [id, on ? 1 : 0]);
+}
+
+function releaseAll() {
+  for (const name of [...pressed]) sendInput(name, false);
+  document.querySelectorAll("#pad .key.on").forEach((b) => b.classList.remove("on"));
+}
+
+function reset() {
+  if (!state.Module) return;
+  state.Module.ccall("asuka_web_reset", null, [], []);
+  log("reset");
 }
 
 // ---------------------------------------------------------------------------
@@ -423,109 +281,72 @@ function ensureDir(path) {
   }
 }
 
-async function writeFile(dir, file) {
-  const FS = state.Module.FS;
+async function fetchToFS(url, dir, name, onBytes) {
+  const res = await fetch(url, { cache: "force-cache" });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+  let buf;
+  if (reader) {
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      if (onBytes) onBytes(value.length, total);
+    }
+    buf = new Uint8Array(received);
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.length; }
+  } else {
+    buf = new Uint8Array(await res.arrayBuffer());
+    if (onBytes) onBytes(buf.length, total || buf.length);
+  }
   ensureDir(dir);
-  // Preserve any relative path the browser exposes (folder drops).
-  const rel = (file.webkitRelativePath || file.name).split("/").slice(-1)[0];
-  const path = `${dir}/${rel}`;
-  const buf = new Uint8Array(await file.arrayBuffer());
-  FS.writeFile(path, buf);
-  return path;
+  state.Module.FS.writeFile(`${dir}/${name}`, buf);
+  return buf.length;
 }
 
-function syncfs(populate) {
+// ---------------------------------------------------------------------------
+// Loader
+// ---------------------------------------------------------------------------
+function loaderSet(pct, status, isError) {
+  if (typeof pct === "number" && isFinite(pct)) {
+    el("loader-bar").style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
+    el("loader-pct").textContent = Math.round(pct) + "%";
+  }
+  if (status !== undefined) {
+    const s = el("loader-status");
+    s.textContent = status;
+    s.classList.toggle("err", !!isError);
+  }
+}
+function loaderDone() {
+  const l = el("loader");
+  l.classList.add("hidden");
+  setTimeout(() => { l.style.display = "none"; }, 600);
+}
+function loaderFail(msg) {
+  log("boot failed: " + msg, "err");
+  loaderSet(100, msg, true);
+  el("loader-retry").hidden = false;
+}
+
+// The service worker reloads the page once on a first (header-less) visit; wait
+// briefly for isolation so the threaded build can start on the reloaded page.
+function waitForIsolation(timeoutMs) {
+  if (window.crossOriginIsolated) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const FS = state.Module.FS;
-    FS.syncfs(!!populate, (err) => {
-      if (err) log("IndexedDB sync warning: " + err, "err");
-      resolve();
-    });
+    const started = Date.now();
+    const tick = () => {
+      if (window.crossOriginIsolated) return resolve(true);
+      if (Date.now() - started >= timeoutMs) return resolve(false);
+      setTimeout(tick, 100);
+    };
+    tick();
   });
-}
-
-// ---------------------------------------------------------------------------
-// File bookkeeping + UI
-// ---------------------------------------------------------------------------
-const MEDIA_EXT = ["chd", "cue", "iso", "img", "d88", "hdm", "bin"];
-
-function classify(file) {
-  const ext = file.name.toLowerCase().split(".").pop();
-  // A CUE disc's tracks are .bin files, so .bin counts as media. Firmware ROMs
-  // are .rom; anything else is treated as firmware.
-  if (MEDIA_EXT.includes(ext)) return "media";
-  return "bios";
-}
-
-// `forced` lets the explicit pickers say which bucket a file belongs in
-// (drag & drop has to guess from the extension).
-function addFiles(files, forced) {
-  let added = 0;
-  for (const f of files) {
-    const kind = forced || classify(f);
-    (kind === "media" ? state.mediaFiles : state.biosFiles).set(f.name, f);
-    added++;
-  }
-  if (added) refreshLists();
-  return added;
-}
-
-function humanSize(n) {
-  if (n < 1024) return n + " B";
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
-  if (n < 1024 * 1024 * 1024) return (n / 1048576).toFixed(1) + " MB";
-  return (n / 1073741824).toFixed(2) + " GB";
-}
-
-function renderList(containerId, map, kind) {
-  const box = el(containerId);
-  box.innerHTML = "";
-  if (map.size === 0) {
-    const p = document.createElement("div");
-    p.className = "empty";
-    p.textContent = kind === "bios"
-      ? "No firmware yet (FMT_SYS.ROM, FMT_DOS.ROM, FMT_FNT.ROM, FMT_DIC.ROM, FMT_F20.ROM)"
-      : "No disc yet (CHD, CUE+BIN or ISO)";
-    box.appendChild(p);
-    return;
-  }
-  for (const [name, file] of map) {
-    const row = document.createElement("div");
-    row.className = "row";
-    const nm = document.createElement("span");
-    nm.className = "nm";
-    nm.textContent = name;
-    nm.title = name;
-    const sz = document.createElement("span");
-    sz.className = "sz";
-    sz.textContent = humanSize(file.size);
-    const x = document.createElement("button");
-    x.className = "x";
-    x.textContent = "✕";
-    x.title = "Remove";
-    x.onclick = () => { map.delete(name); refreshLists(); };
-    row.append(nm, sz, x);
-    box.appendChild(row);
-  }
-}
-
-function refreshLists() {
-  renderList("list-bios", state.biosFiles, "bios");
-  renderList("list-media", state.mediaFiles, "media");
-
-  const sel = el("media-select");
-  sel.innerHTML = "";
-  for (const name of state.mediaFiles.keys()) {
-    const o = document.createElement("option");
-    o.value = name;
-    o.textContent = name;
-    sel.appendChild(o);
-  }
-  sel.disabled = state.mediaFiles.size === 0;
-  el("btn-boot").disabled = state.booting || state.mediaFiles.size === 0;
-
-  const ready = state.biosFiles.size > 0 && state.mediaFiles.size > 0;
-  el("btn-run").disabled = !ready || state.running;
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +354,6 @@ function refreshLists() {
 // ---------------------------------------------------------------------------
 async function loadModule() {
   if (state.Module) return state.Module;
-  log("loading asuka_web.js …");
   const factory = window.createAsukaModule;
   if (typeof factory !== "function") {
     throw new Error("asuka_web.js not loaded (missing createAsukaModule)");
@@ -545,185 +365,92 @@ async function loadModule() {
     printErr: (s) => log(s, "err"),
   });
   state.Module = Module;
-  // Debug handle: lets the console (and the headless test) inspect the runtime.
+  // Debug handle for the console and the headless test harness.
   window.asuka = {
     module: Module,
     ccall: (n, r, a, v) => Module.ccall(n, r, a, v),
+    sendInput,
+    KEY,
     state,
   };
   log("runtime ready", "ok");
-
-  await mountStorage();
   return Module;
 }
 
-// Mount persistent IndexedDB-backed storage over /bios and /media, once.
-let storageMounted = false;
-async function mountStorage() {
-  if (storageMounted) return;
-  const Module = state.Module;
-  if (!Module || !Module.FS) {
-    log("warning: filesystem unavailable; files will not persist", "err");
-    return;
-  }
-  ensureDir(BIOS_DIR);
-  ensureDir(MEDIA_DIR);
-  if (Module.IDBFS) {
-    try {
-      Module.FS.mount(Module.IDBFS, {}, BIOS_DIR);
-      Module.FS.mount(Module.IDBFS, {}, MEDIA_DIR);
-      await syncfs(true);  // load persisted files
-      log("IndexedDB storage mounted");
-    } catch (e) {
-      log("IndexedDB mount failed (files stay in memory only): " + e, "err");
-    }
-  } else {
-    log("warning: IDBFS not linked; files will not persist across reloads", "err");
-  }
-  storageMounted = true;
-}
-
-async function mountFiles() {
-  const Module = state.Module;
-  const FS = Module.FS;
-  // Start from a clean slate so a removed file really disappears.
-  for (const dir of [BIOS_DIR, MEDIA_DIR]) {
-    try { FS.readdir(dir).forEach((n) => { if (n !== "." && n !== "..") FS.unlink(`${dir}/${n}`); }); }
-    catch (e) { /* directory may not exist yet */ }
-  }
-
-  for (const f of state.biosFiles.values()) await writeFile(BIOS_DIR, f);
-  for (const f of state.mediaFiles.values()) await writeFile(MEDIA_DIR, f);
-  await syncfs(false);
-  log(`mounted ${state.biosFiles.size} BIOS file(s), ${state.mediaFiles.size} media file(s)`);
-}
-
-function ccall(name, ret, args, values) {
-  return state.Module.ccall(name, ret, args, values);
-}
-
-async function boot() {
-  if (state.booting) return;
-  state.booting = true;
-  el("btn-boot").disabled = true;
+// ---------------------------------------------------------------------------
+// Turnkey boot: load the bundled BIOS + disc from assets/manifest.json and
+// start the engine with no user input.
+// ---------------------------------------------------------------------------
+async function autoBoot() {
+  loaderSet(2, "Booting…");
   try {
+    let manifest = null;
+    try {
+      const r = await fetch(`${ASSET_BASE}/manifest.json`, { cache: "no-store" });
+      if (r.ok) manifest = await r.json();
+    } catch (e) { /* no manifest */ }
+    if (!manifest || !manifest.cue || !Array.isArray(manifest.bios) || !manifest.bios.length) {
+      throw new Error("No bundled assets found (assets/manifest.json missing).");
+    }
+
+    await waitForIsolation(6000);
     await loadModule();
-    await mountFiles();
 
-    const mediaName = el("media-select").value;
-    const mediaPath = `${MEDIA_DIR}/${mediaName}`;
-    log(`init(bios=${BIOS_DIR}, media=${mediaPath})`);
+    // Prefer the manifest's exact byte sizes: some hosts report a compressed
+    // content-length on HEAD that does not match the decoded body we stream.
+    const all = [...manifest.bios, ...manifest.media];
+    let totalBytes = manifest.totalBytes || all.reduce((a, e) => a + (e.size || 0), 0);
+    if (!totalBytes) {
+      try {
+        const head = await Promise.all(all.map(async (e) =>
+          Number((await fetch(`${ASSET_BASE}/${e.url}`, { method: "HEAD" }))
+            .headers.get("content-length")) || 0));
+        totalBytes = head.reduce((a, b) => a + b, 0);
+      } catch (e) { totalBytes = 0; }
+    }
 
-    const ok = ccall("asuka_web_init", "number", ["string", "string"],
-                     [BIOS_DIR, mediaPath]);
+    let loaded = 0;
+    const bump = (n) => {
+      loaded += n;
+      const pct = totalBytes ? 4 + 90 * (loaded / totalBytes) : 50;
+      loaderSet(pct, `Loading ${(loaded / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MB`);
+    };
+
+    loaderSet(4, "Loading BIOS & disc…");
+    for (const e of manifest.bios) await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name, bump);
+    for (const e of manifest.media) await fetchToFS(`${ASSET_BASE}/${e.url}`, MEDIA_DIR, e.name, bump);
+    log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
+
+    loaderSet(96, "Warming up the FM Towns…");
+    const mediaPath = `${MEDIA_DIR}/${manifest.cue}`;
+    const ok = state.Module.ccall("asuka_web_init", "number", ["string", "string"],
+                                  [BIOS_DIR, mediaPath]);
     if (!ok) {
-      const err = state.Module.UTF8ToString(ccall("asuka_web_last_error", "number", [], []));
+      const err = state.Module.UTF8ToString(
+        state.Module.ccall("asuka_web_last_error", "number", [], []));
       throw new Error(err || "engine init failed");
     }
-    log("engine initialised", "ok");
-    ccall("asuka_web_start", null, ["number"], [0]);
+    state.Module.ccall("asuka_web_start", null, ["number"], [0]);
     state.running = true;
-    hideOverlay();
-    el("btn-reset").disabled = false;
+
+    loaderSet(100, "Running");
+    loaderDone();
     el("canvas").focus();
-    log("running", "ok");
+    if (isTouchDevice()) el("pad").classList.add("show");
+    log("running (auto-boot)", "ok");
+    return true;
   } catch (e) {
-    log("boot failed: " + (e && e.message ? e.message : e), "err");
-    showOverlay("Boot failed", String(e && e.message ? e.message : e));
-  } finally {
-    state.booting = false;
-    refreshLists();
+    loaderFail(e && e.message ? e.message : String(e));
+    return false;
   }
 }
 
-function reset() {
-  if (!state.Module) return;
-  ccall("asuka_web_reset", null, [], []);
-  log("reset");
-}
-
-function sendKey(name, pressed) {
-  if (!state.Module) return;
-  const code = KEY[name];
-  if (code === undefined) return;
-  ccall("asuka_web_key", null, ["number", "number"], [code, pressed ? 1 : 0]);
-}
-
 // ---------------------------------------------------------------------------
-// Overlay helpers
+// Input wiring
 // ---------------------------------------------------------------------------
-function showOverlay(title, hint) {
-  el("overlay-title").textContent = title;
-  if (hint) el("overlay-hint").innerHTML = hint;
-  el("overlay").classList.remove("hidden");
-}
-function hideOverlay() { el("overlay").classList.add("hidden"); }
-
-// ---------------------------------------------------------------------------
-// Wire up the UI
-// ---------------------------------------------------------------------------
-function setup() {
-  updateCoBadge();
-
-  el("pick-bios").onclick = () => el("file-bios").click();
-  el("pick-media").onclick = () => el("file-media").click();
-  el("file-bios").onchange = (e) => { addFiles(e.target.files, "bios"); e.target.value = ""; };
-  el("file-media").onchange = (e) => { addFiles(e.target.files, "media"); e.target.value = ""; };
-
-  el("btn-boot").onclick = boot;
-  el("btn-run").onclick = boot;
-  el("btn-reset").onclick = reset;
-  el("btn-clear").onclick = async () => {
-    state.biosFiles.clear();
-    state.mediaFiles.clear();
-    refreshLists();
-    if (state.Module) {
-      for (const dir of [BIOS_DIR, MEDIA_DIR]) {
-        try { state.Module.FS.readdir(dir).forEach((n) => {
-          if (n !== "." && n !== "..") state.Module.FS.unlink(`${dir}/${n}`); }); }
-        catch (e) { /* ignore */ }
-      }
-      await syncfs(false);
-    }
-    log("cleared stored files");
-  };
-
-  el("btn-full").onclick = toggleFullscreen;
-  el("btn-pad").onclick = () => el("touchpad").classList.toggle("show");
-
-  // Drag & drop anywhere on the page.
-  const stage = document.querySelector(".stage");
-  const dz = el("dropzone");
-  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
-  ["dragenter", "dragover"].forEach((ev) =>
-    document.addEventListener(ev, (e) => { stop(e); dz.classList.add("hot"); }));
-  ["dragleave", "drop"].forEach((ev) =>
-    document.addEventListener(ev, (e) => { stop(e); dz.classList.remove("hot"); }));
-  document.addEventListener("drop", async (e) => {
-    const items = e.dataTransfer ? e.dataTransfer.files : null;
-    if (items && items.length) {
-      const n = addFiles(items);
-      log(`added ${n} file(s) via drag & drop`);
-      if (!state.running) showOverlay("Files added",
-        `${state.biosFiles.size} BIOS file(s), ${state.mediaFiles.size} media file(s). Pick the disc and press <b>Boot</b>.`);
-    }
-  });
-
-  // Keyboard.
-  window.addEventListener("keydown", (e) => onKey(e, true));
-  window.addEventListener("keyup", (e) => onKey(e, false));
-
-  // Touch gamepad buttons.
-  document.querySelectorAll("#touchpad .pad[data-key]").forEach((pad) => {
-    const name = pad.dataset.key;
-    const press = (on) => (ev) => { ev.preventDefault(); pad.classList.toggle("on", on); sendKey(name, on); };
-    pad.addEventListener("pointerdown", press(true));
-    pad.addEventListener("pointerup", press(false));
-    pad.addEventListener("pointercancel", press(false));
-    pad.addEventListener("pointerleave", press(false));
-  });
-
-  refreshLists();
+function isTouchDevice() {
+  return (navigator.maxTouchPoints > 0) || ("ontouchstart" in window) ||
+         (window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
 }
 
 const SCAN_TO_KEY = {
@@ -732,35 +459,68 @@ const SCAN_TO_KEY = {
   Space: "a", KeyZ: "b", KeyX: "x", KeyC: "y",
 };
 
-function onKey(e, pressed) {
-  // Host-level shortcuts first.
-  if (pressed && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
-  if (pressed && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
+function onKey(e, on) {
+  if (on && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
+  if (on && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
   const name = SCAN_TO_KEY[e.code];
-  if (name) { sendKey(name, pressed); e.preventDefault(); }
+  if (name) { if (!e.repeat || !on) sendInput(name, on); e.preventDefault(); }
 }
 
 function toggleFullscreen() {
-  const stage = document.querySelector(".stage");
   if (!document.fullscreenElement) {
+    const stage = el("stage");
     (stage.requestFullscreen || stage.webkitRequestFullscreen || (() => {})).call(stage);
   } else {
     (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
   }
 }
 
+function wirePad() {
+  document.querySelectorAll("#pad .key").forEach((btn) => {
+    const name = btn.dataset.key;
+    const down = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not critical */ }
+      btn.classList.add("on");
+      sendInput(name, true);
+    };
+    const up = (e) => {
+      e.preventDefault();
+      btn.classList.remove("on");
+      sendInput(name, false);
+    };
+    btn.addEventListener("pointerdown", down);
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointercancel", up);
+    btn.addEventListener("lostpointercapture", up);
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Boot the page.
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
-  setup();
+  wirePad();
+
+  // Physical keyboard: listen on the window so it works whatever has focus,
+  // and keep the canvas focused so the SDL2 listener sees the events too.
+  window.addEventListener("keydown", (e) => onKey(e, true));
+  window.addEventListener("keyup", (e) => onKey(e, false));
+  window.addEventListener("blur", releaseAll);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+
+  // Tapping the game view restores keyboard focus.
+  el("stage").addEventListener("pointerdown", () => el("canvas").focus());
+
+  el("canvas").focus();
+  el("loader-retry").onclick = () => location.reload();
   log("Asuka web shell ready");
   if (!window.crossOriginIsolated) {
-    log("warning: not cross-origin isolated — the threaded build will not run. " +
-        "Serve with COOP/COEP (scripts/serve_web.py or the Cloudflare _headers).", "err");
+    log("warning: not cross-origin isolated — threads need COOP/COEP.", "err");
   }
-  // Preload the runtime so the first Boot is quick.
-  loadModule().catch((e) => log("preload failed: " + e.message, "err"));
+  autoBoot();
 });
 </script>
 </body>
