@@ -169,6 +169,7 @@ tracked (everything lives under the git-ignored `test_assets/`).
 ```sh
 scripts/fetch_test_assets.sh      # BIOS from retrobios + After Burner disc
 scripts/verify_fmtowns_boot.sh    # boots it and asserts the frame has content
+scripts/record_fmtowns_boot.sh    # records the boot to MP4 + GIF
 ```
 
 `fetch_test_assets.sh` pulls the Fujitsu FM Towns ROM set from
@@ -182,3 +183,16 @@ With a genuine ROM set the machine progresses through POST (640×480), the
 boot menu (640×400, text mode), and finally the game's native 320×240 mode,
 which renders the After Burner title with hundreds of distinct colours and
 changes frame to frame.
+
+### Demo
+
+![After Burner boot on FM Towns](docs/media/afterburner_boot.gif)
+
+The 15-second clip above (also available as
+[`afterburner_boot.mp4`](docs/media/afterburner_boot.mp4)) shows the boot menu
+appearing, the video mode switching to 320×240, and the After Burner title
+rendering and animating. `record_fmtowns_boot.sh` produces it: it runs the
+emulator with every frame dumped, normalises the frames onto one canvas (the
+machine changes video mode mid-boot, and ffmpeg needs a constant frame size),
+cuts the long stretch where the machine sits on a byte-identical boot screen,
+and encodes H.264 plus an optimised GIF.

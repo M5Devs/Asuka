@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@ struct Options {
     std::string media;
     int frames = kDefaultFrames;
     std::string dump_frame;
+    std::string dump_frames;
 };
 
 void print_usage(const char* argv0) {
@@ -39,6 +41,7 @@ void print_usage(const char* argv0) {
         "  --media <path>        media image (CHD, CUE/BIN, ISO, floppy)\n"
         "  --frames <N>          frames to run (default %d)\n"
         "  --dump-frame <path>   write the final frame to a binary PPM (P6)\n"
+        "  --dump-frames <dir>   write every frame as <dir>/frame_%%04d.ppm\n"
         "  -h, --help            show this help\n"
         "\n"
         "If --plugin is omitted, a positional plugin path is used, then\n"
@@ -84,6 +87,8 @@ bool parse_args(int argc, char** argv, Options& opts, bool& help) {
             }
         } else if (arg == "--dump-frame") {
             if (!take_value(argc, argv, i, opts.dump_frame)) return false;
+        } else if (arg == "--dump-frames") {
+            if (!take_value(argc, argv, i, opts.dump_frames)) return false;
         } else if (!arg.empty() && arg[0] == '-') {
             std::fprintf(stderr, "error: unknown option '%s'\n", arg.c_str());
             return false;
@@ -186,6 +191,16 @@ int run(const Options& opts) {
         report_every = 1;
     }
 
+    if (!opts.dump_frames.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(opts.dump_frames, ec);
+        if (ec) {
+            std::fprintf(stderr, "error: cannot create '%s': %s\n",
+                         opts.dump_frames.c_str(), ec.message().c_str());
+            return EXIT_FAILURE;
+        }
+    }
+
     for (int frame = 0; frame < opts.frames; ++frame) {
         engine->step_frame();
 
@@ -209,6 +224,17 @@ int run(const Options& opts) {
             ((frame + 1) % report_every) == 0) {
             std::printf("  frame %4d/%d  %dx%d  audio=%zu samples/ch\n",
                         frame + 1, opts.frames, width, height, count);
+        }
+
+        if (!opts.dump_frames.empty() && framebuffer != nullptr && w > 0 &&
+            h > 0) {
+            char name[32];
+            std::snprintf(name, sizeof(name), "frame_%04d.ppm", frame);
+            const std::string path =
+                (std::filesystem::path(opts.dump_frames) / name).string();
+            if (!write_ppm(path, framebuffer, w, h)) {
+                return EXIT_FAILURE;
+            }
         }
     }
 
