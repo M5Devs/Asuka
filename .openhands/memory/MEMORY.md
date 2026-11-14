@@ -109,8 +109,8 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   `--use-gl=swiftshader`) loads real BIOS + After Burner, boots, renders at
   **~57 fps** (717 frames/12 s, cross-origin isolated, 88 palette colours).
 
-## Standalone web deploy (`<secret-hidden>-tests/asukatest`) — 2026-11-13
-- The static site is deployed to a **separate repo**, `<secret-hidden>-tests/asukatest`
+## Standalone web deploy (`m5dev-tests/asukatest`) — 2026-11-13
+- The static site is deployed to a **separate repo**, `m5dev-tests/asukatest`
   (was LICENSE+README only; push straight to `main`). The current Asuka source
   lives in *another* workspace; the deploy target is a near-empty repo cloned
   for this purpose.
@@ -281,3 +281,32 @@ Build: `cmake -B build && cmake --build build` (default type Release).
   boot with `scripts/verify_fmtowns_boot.sh`.
 - **Vendor must stay pristine**: any debug instrumentation in
   `plugins/fmtowns/vendor/` must be reverted (`git status` clean; `grep -rc DBG`).
+
+## Web ROM loader / machine switch — Task 9 (commit `8d65271`)
+
+- **Cores power on once per process.** NP2kai's libretro `retro_run()` gates its
+  one-shot bootstrap (`pre_main`→`np2_main`) on `static int firstcall`, and
+  `retro_deinit`/`np2_end` never reset it (also `lr_init`/many statics). So a
+  second in-process `retro_init`+`retro_load_game` runs a torn-down machine →
+  nondeterministic WASM `table index out of bounds` in the fmgen FM core.
+  Repeated loads of the *same* image look clean (frames just keep counting) but
+  a different image traps. **Do NOT try to swap engines in place.**
+- **Robust strategy (implemented):** cold start (no engine) boots in place;
+  a load while a machine is live parks the image in IndexedDB (`asuka-game`/kv)
+  and `location.reload()`s → `autoBoot()` reads the parked record via
+  `takePendingGame()` and boots it in a fresh runtime. Vendor stays pristine.
+- `src/web/main_web.cpp`: engine lifecycle split into `ensure_platform()`
+  (SDL window/renderer/audio/gamepad, process-wide), `start_engine()`,
+  `stop_engine()`; new export `asuka_web_load_rom(machine, media)`.
+- `web/index.html`: floating `#rombtn` in `#tools` (always shown), hidden
+  `#rom-input`, `#drop` overlay; ext→machine map (`PC98_EXT`/`FMT_EXT`);
+  `.zip` unwrapped in JS (`firstZipEntry`, stored+deflate via
+  `DecompressionStream`). `autoBoot()` factored to share `bootEngine()`.
+- **Rebuild gotcha:** emsdk's shim picks `python3`→`/usr/local/bin/python3`
+  (broken; segfaults on ctypes) → must `export EMSDK_PYTHON=/usr/bin/python3`
+  (twice: before `emsdk_env.sh` and after).
+- **Test:** headless chromium + puppeteer-core (`/tmp/webtest/verify_rom.js`),
+  `scripts/serve_web.py` (COOP/COEP) → 20/20. Deploy repo
+  `m5dev-tests/asukatest` = built `index.html` + injected
+  `<script src="coi-serviceworker.min.js">` (Pages can't send COOP/COEP);
+  its `_headers` adds `/assets/*` caching. `verify_deploy.js` → 7/7.
