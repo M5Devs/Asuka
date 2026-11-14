@@ -63,7 +63,11 @@ struct WebState {
     SDL_GameController* pad = nullptr;
 
     bool running = false;
+    bool paused = false;
     bool audio_enabled = true;
+    // Master volume, 0..100. Applied as a gain when queueing PCM, because
+    // SDL_QueueAudio() has no per-device volume control.
+    int volume = 100;
     long long frames = 0;
     unsigned long long input_events = 0;
     unsigned prev_dirs = 0;
@@ -79,6 +83,10 @@ struct WebState {
     // shell (asuka_web_get_snapshot_thumbnail). Kept alive until the next call
     // so the returned pointer stays valid while JavaScript reads it.
     std::vector<uint8_t> thumbnail;
+
+    // Scratch buffer for volume-scaled PCM (reused every frame when the master
+    // volume is below 100%, so the loop does not allocate).
+    std::vector<int16_t> silence;
 };
 
 WebState g_state;
@@ -238,6 +246,10 @@ void loop_iteration() {
     if (!g_state.running || g_state.engine == nullptr) {
         return;
     }
+    if (g_state.paused) {
+        // Hold the last presented frame on screen; skip emulation and audio.
+        return;
+    }
 
     handle_events();
     g_state.engine->step_frame();
@@ -258,8 +270,25 @@ void loop_iteration() {
                 static_cast<long long>(kAudioTargetMs) * kAudioSampleRate / 1000 *
                 bytes_per_frame);
             if (SDL_GetQueuedAudioSize(g_state.audio_device) < target_bytes) {
-                SDL_QueueAudio(g_state.audio_device, samples,
-                               static_cast<Uint32>(sample_count * bytes_per_frame));
+                const size_t total = sample_count * kAudioChannels;
+                if (g_state.volume >= 100) {
+                    SDL_QueueAudio(g_state.audio_device, samples,
+                                   static_cast<Uint32>(total * sizeof(int16_t)));
+                } else if (g_state.volume <= 0) {
+                    // Muted: keep the queue topped up with silence so timing
+                    // (and the read-ahead thread) stays unchanged.
+                    g_state.silence.assign(total, 0);
+                    SDL_QueueAudio(g_state.audio_device, g_state.silence.data(),
+                                   static_cast<Uint32>(total * sizeof(int16_t)));
+                } else {
+                    g_state.silence.resize(total);
+                    for (size_t i = 0; i < total; ++i) {
+                        g_state.silence[i] = static_cast<int16_t>(
+                            static_cast<long long>(samples[i]) * g_state.volume / 100);
+                    }
+                    SDL_QueueAudio(g_state.audio_device, g_state.silence.data(),
+                                   static_cast<Uint32>(total * sizeof(int16_t)));
+                }
             }
         }
     }
@@ -515,6 +544,54 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_reset() {
     if (g_state.engine != nullptr) {
         g_state.engine->reset();
     }
+}
+
+// Swap the media of the running engine in place (insert/eject a floppy or CD
+// without a cold boot). Returns 1 on success, 0 on failure. PC-98 needs a
+// re-prime after the swap (its core mounts media during the one-off bootstrap),
+// so the loop resumes only after that is armed.
+EMSCRIPTEN_KEEPALIVE int asuka_web_swap_media(const char* media_path) {
+    if (g_state.engine == nullptr) {
+        set_error("swap_media: no engine");
+        return 0;
+    }
+    const std::string media = media_path != nullptr ? media_path : "";
+    if (!g_state.engine->load_media(media)) {
+        set_error("load_media() failed: " + media);
+        return 0;
+    }
+    g_state.frames = 0;
+    g_state.last_error.clear();
+    return 1;
+}
+
+// Pause/resume emulation. While paused the loop keeps the last presented frame
+// on screen and queues no audio, so the machine state is frozen (the pause
+// drawer can then save a snapshot of an exact point in time).
+EMSCRIPTEN_KEEPALIVE void asuka_web_set_paused(int paused) {
+    g_state.paused = paused != 0;
+    if (g_state.paused && g_state.audio_device != 0) {
+        SDL_ClearQueuedAudio(g_state.audio_device);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE int asuka_web_is_paused() {
+    return g_state.paused ? 1 : 0;
+}
+
+// Master volume, 0..100. Applied when queueing PCM (SDL_QueueAudio has no
+// device volume), so it takes effect within one audio-buffer of playback.
+EMSCRIPTEN_KEEPALIVE void asuka_web_set_volume(int volume) {
+    if (volume < 0) {
+        volume = 0;
+    } else if (volume > 100) {
+        volume = 100;
+    }
+    g_state.volume = volume;
+}
+
+EMSCRIPTEN_KEEPALIVE int asuka_web_get_volume() {
+    return g_state.volume;
 }
 
 // Feed a key event. `key` is an asuka::Key value (see include/asuka/Input.hpp).

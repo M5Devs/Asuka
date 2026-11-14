@@ -377,11 +377,468 @@
   }
   #kbd .key.util.on { background: rgba(255, 93, 143, 0.5); }
   #kbd .key.wide { flex: 2.4 1 0; }
+
+  /* =======================================================================
+     Modern front-end: games library, pause drawer, settings.
+     All vanilla CSS driven by a few custom properties so the settings modal
+     can restyle the running machine without touching the DOM tree.
+     ======================================================================= */
+  :root {
+    --pad-opacity: 0.92;
+    --pad-scale: 1;
+    --kbd-scale: 1;
+    --accent: #ff5d8f;
+    --glass: rgba(16, 16, 20, 0.72);
+    --glass-edge: rgba(255, 255, 255, 0.14);
+    --radius: 16px;
+  }
+
+  /* Touch surface opacity / scale, driven by the settings modal. */
+  #pad .key, #kbd .key { opacity: var(--pad-opacity); }
+  #pad { --cell: calc(clamp(46px, 9.5vmin, 70px) * var(--pad-scale)); }
+  #kbd .key { height: calc(clamp(30px, 6.4vmin, 44px) * var(--kbd-scale)); }
+
+  /* CRT scanline overlay: a repeating gradient over the whole stage. */
+  #scanlines {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    pointer-events: none;
+    display: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.30) 0px,
+      rgba(0, 0, 0, 0.30) 1px,
+      rgba(0, 0, 0, 0.00) 2px,
+      rgba(0, 0, 0, 0.00) 3px
+    );
+    mix-blend-mode: multiply;
+  }
+  body.scanlines #scanlines { display: block; }
+
+  /* Aspect ratio: 4:3 (default, letterboxed) vs Fit Screen (fill). */
+  body.fit #stage { width: 100vw; height: 100vh; }
+
+  /* Texture filtering: crisp pixels (default) vs bilinear smoothing. */
+  body.smooth #canvas { image-rendering: auto; }
+
+  /* ---- Floating pause/gear button (joins #tools) ---- */
+  #menubtn { font-size: 15px; }
+
+  /* ---- Games library (launcher mode) ---- */
+  #library {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    flex-direction: column;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(255, 93, 143, 0.14), transparent 60%),
+      radial-gradient(900px 500px at 100% 110%, rgba(93, 143, 255, 0.12), transparent 60%),
+      #08080b;
+    color: #f2f2f4;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #library.show { display: flex; }
+
+  #library .head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: calc(20px + env(safe-area-inset-top)) clamp(16px, 4vw, 40px) 8px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: linear-gradient(rgba(8, 8, 11, 0.92), rgba(8, 8, 11, 0.55));
+  }
+  #library .logo {
+    font-size: clamp(16px, 3vw, 22px);
+    letter-spacing: .34em;
+    text-transform: uppercase;
+    padding-left: .34em;
+    font-weight: 500;
+  }
+  #library .logo b { color: var(--accent); }
+  #library .head .spacer { flex: 1; }
+  #library .count { font-size: 11px; letter-spacing: .12em; color: #8a8a92; }
+
+  #library .body { padding: 10px clamp(16px, 4vw, 40px) calc(40px + env(safe-area-inset-bottom)); }
+
+  #library h2 {
+    font-size: 11px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: #8a8a92;
+    margin: 22px 2px 12px;
+    font-weight: 500;
+  }
+
+  #library .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius);
+    background: linear-gradient(160deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+    border: 1px solid var(--glass-edge);
+    overflow: hidden;
+    transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+    text-align: left;
+  }
+  .card:hover, .card:focus-within {
+    transform: translateY(-3px);
+    border-color: rgba(255, 93, 143, 0.5);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  }
+  .card .art {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 44px;
+    background:
+      linear-gradient(135deg, rgba(255, 93, 143, 0.16), rgba(93, 143, 255, 0.14)),
+      #101015;
+    color: rgba(255, 255, 255, 0.72);
+    overflow: hidden;
+  }
+  .card .art img { width: 100%; height: 100%; object-fit: cover; }
+  .card .badge {
+    position: absolute;
+    top: 9px;
+    left: 9px;
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.28);
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .card .badge.pc98 { border-color: rgba(93, 143, 255, 0.6); color: #bcd0ff; }
+  .card .badge.fmtowns { border-color: rgba(255, 93, 143, 0.6); color: #ffc4d8; }
+  .card .meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 13px;
+  }
+  .card .info { flex: 1; min-width: 0; }
+  .card .title {
+    font-size: 13px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card .sub { font-size: 10px; color: #8a8a92; letter-spacing: .06em; margin-top: 2px; }
+  .card .play {
+    flex: 0 0 auto;
+    border: 1px solid var(--glass-edge);
+    background: rgba(255, 93, 143, 0.18);
+    color: #fff;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: .08em;
+    cursor: pointer;
+    transition: background .12s ease, transform .06s ease;
+  }
+  .card .play:hover { background: rgba(255, 93, 143, 0.4); }
+  .card .play:active { transform: scale(.95); }
+  .card .del {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--glass-edge);
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .14s ease, background .12s ease;
+  }
+  .card:hover .del, .card:focus-within .del { opacity: 1; }
+  .card .del:hover { background: rgba(255, 93, 143, 0.6); }
+
+  /* Import card: dashed outline, same footprint as a game card. */
+  .card.import {
+    border-style: dashed;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    min-height: 168px;
+  }
+  .card.import .art { background: none; aspect-ratio: auto; padding: 22px 0 6px; font-size: 32px; }
+  .card.import .label { font-size: 12px; letter-spacing: .1em; padding-bottom: 20px; }
+
+  #library .empty {
+    padding: 30px 4px;
+    color: #8a8a92;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  /* ---- Pause drawer (glassmorphic) ---- */
+  #scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .22s ease;
+  }
+  #scrim.show { opacity: 1; pointer-events: auto; }
+
+  #menu {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    z-index: 55;
+    width: min(400px, 92vw);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: calc(16px + env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom));
+    background: var(--glass);
+    border-left: 1px solid var(--glass-edge);
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    transform: translateX(102%);
+    transition: transform .26s cubic-bezier(.22, .61, .36, 1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  #menu.show { transform: translateX(0); }
+
+  #menu .menu-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  #menu .menu-head .name { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #menu .menu-head .machine { font-size: 10px; letter-spacing: .12em; color: #8a8a92; text-transform: uppercase; }
+  #menu .close {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-edge);
+    background: rgba(255,255,255,0.06);
+    color: #fff; font: inherit; font-size: 16px; cursor: pointer;
+  }
+  #menu .close:hover { background: rgba(255,255,255,0.16); }
+
+  #menu .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 13px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-edge);
+    background: rgba(255,255,255,0.05);
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background .12s ease, transform .06s ease;
+  }
+  #menu .row:hover { background: rgba(255,255,255,0.12); }
+  #menu .row:active { transform: scale(.985); }
+  #menu .row .ico { width: 20px; text-align: center; font-size: 15px; }
+  #menu .row .grow { flex: 1; }
+  #menu .row.primary { background: rgba(255, 93, 143, 0.2); border-color: rgba(255, 93, 143, 0.45); }
+  #menu .row.primary:hover { background: rgba(255, 93, 143, 0.34); }
+  #menu .row.danger:hover { background: rgba(255, 93, 143, 0.24); }
+
+  #menu h3 {
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: #8a8a92;
+    margin: 16px 4px 4px;
+    font-weight: 500;
+  }
+
+  /* Snapshot carousel: three slots side by side. */
+  #menu .slots {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .slot {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 7px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-edge);
+    background: rgba(0,0,0,0.28);
+  }
+  .slot .shot {
+    aspect-ratio: 4 / 3;
+    border-radius: 7px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.5) center / cover no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    letter-spacing: .08em;
+    color: rgba(255,255,255,0.4);
+    overflow: hidden;
+  }
+  .slot .shot.filled { color: transparent; border-color: rgba(255,255,255,0.34); }
+  .slot .ops { display: flex; gap: 5px; }
+  .slot .ops button {
+    flex: 1;
+    padding: 6px 0;
+    border-radius: 7px;
+    border: 1px solid var(--glass-edge);
+    background: rgba(255,255,255,0.07);
+    color: #fff;
+    font: inherit;
+    font-size: 10px;
+    letter-spacing: .06em;
+    cursor: pointer;
+  }
+  .slot .ops button:hover { background: rgba(255,255,255,0.18); }
+  .slot .ops button:disabled { opacity: .35; cursor: default; }
+  .slot .tag { font-size: 9px; letter-spacing: .1em; color: #8a8a92; text-align: center; }
+
+  /* ---- Settings modal ---- */
+  #settings {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  #settings.show { display: flex; }
+  #settings .panel {
+    width: min(460px, 100%);
+    max-height: 88vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 18px;
+    border: 1px solid var(--glass-edge);
+    background: var(--glass);
+    backdrop-filter: blur(22px) saturate(1.2);
+    -webkit-backdrop-filter: blur(22px) saturate(1.2);
+    padding: 18px 18px 20px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+  }
+  #settings .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  #settings .panel-head .t { flex: 1; font-size: 15px; letter-spacing: .04em; }
+  #settings h3 {
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: #8a8a92;
+    margin: 18px 2px 8px;
+    font-weight: 500;
+  }
+  #settings .field {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 2px;
+  }
+  #settings .field .lab { flex: 1; font-size: 13px; }
+  #settings .field .hint { font-size: 10px; color: #8a8a92; }
+  #settings input[type="range"] {
+    flex: 0 0 140px;
+    accent-color: var(--accent);
+    background: transparent;
+  }
+  #settings .val { flex: 0 0 40px; text-align: right; font-size: 11px; color: #b9b9c2; }
+
+  /* Segmented control. */
+  .seg { display: inline-flex; border-radius: 10px; border: 1px solid var(--glass-edge); overflow: hidden; }
+  .seg button {
+    border: 0;
+    background: transparent;
+    color: #c9c9d2;
+    font: inherit;
+    font-size: 11px;
+    padding: 7px 12px;
+    cursor: pointer;
+    letter-spacing: .04em;
+  }
+  .seg button.on { background: rgba(255, 93, 143, 0.32); color: #fff; }
+
+  /* Switch. */
+  .switch {
+    position: relative;
+    flex: 0 0 44px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid var(--glass-edge);
+    background: rgba(255,255,255,0.08);
+    cursor: pointer;
+    transition: background .14s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #dcdce4;
+    transition: transform .16s ease;
+  }
+  .switch.on { background: rgba(255, 93, 143, 0.6); }
+  .switch.on::after { transform: translateX(20px); background: #fff; }
+
+  @media (max-width: 640px) {
+    #menu {
+      top: auto;
+      left: 0; right: 0; bottom: 0;
+      width: auto;
+      max-height: 82vh;
+      border-left: 0;
+      border-top: 1px solid var(--glass-edge);
+      border-radius: 20px 20px 0 0;
+      transform: translateY(102%);
+    }
+    #menu.show { transform: translateY(0); }
+  }
 </style>
 </head>
 <body>
 <div id="stage">
   <canvas id="canvas" width="640" height="480" tabindex="0"></canvas>
+  <div id="scanlines"></div>
 
   <div id="loader">
     <div class="brand">Asu<b>k</b>a</div>
@@ -423,6 +880,9 @@
   </button>
   <button id="rombtn" title="Load a game image (.hdi .d88 .chd .cue .iso .zip)" aria-label="Load game image">
     <span class="glyph">📁</span><span class="label">ROM</span>
+  </button>
+  <button id="menubtn" title="Pause &amp; menu (Esc)" aria-label="Pause menu">
+    <span class="glyph">⚙️</span>
   </button>
 </div>
 
@@ -507,6 +967,114 @@
 
 <pre id="log" hidden></pre>
 
+<!-- ======================================================================
+     Games library (launcher). Shown when nothing is booting, or when the
+     player exits a running game. Cards are rendered from IndexedDB.
+     ====================================================================== -->
+<div id="library" aria-hidden="true">
+  <div class="head">
+    <div class="logo">Asu<b>k</b>a</div>
+    <div class="spacer"></div>
+    <div class="count" id="library-count"></div>
+  </div>
+  <div class="body">
+    <h2>Your Games</h2>
+    <div class="grid" id="library-grid"></div>
+    <div class="empty" id="library-empty" hidden>
+      No games imported yet. Drop a PC-98 or FM Towns image anywhere, or use
+      <b>Import ROM</b> to add one.
+    </div>
+  </div>
+</div>
+
+<!-- Pause drawer: scrim + sliding glass panel. -->
+<div id="scrim"></div>
+<aside id="menu" aria-hidden="true">
+  <div class="menu-head">
+    <div class="grow">
+      <div class="name" id="menu-title">Game</div>
+      <div class="machine" id="menu-machine">—</div>
+    </div>
+    <button class="close" id="menu-close" title="Resume" aria-label="Resume">✕</button>
+  </div>
+
+  <button class="row primary" id="menu-resume"><span class="ico">▶</span><span class="grow">Resume</span></button>
+
+  <h3>Snapshots</h3>
+  <div class="slots" id="menu-slots"></div>
+
+  <h3>Media</h3>
+  <button class="row" id="menu-media"><span class="ico">💾</span><span class="grow">Swap floppy / disc…</span></button>
+
+  <h3>Machine</h3>
+  <button class="row" id="menu-settings"><span class="ico">⚙️</span><span class="grow">Settings</span></button>
+  <button class="row" id="menu-reset"><span class="ico">🔄</span><span class="grow">Reset machine</span></button>
+  <button class="row danger" id="menu-exit"><span class="ico">⏏</span><span class="grow">Exit to library</span></button>
+</aside>
+
+<!-- Media swapper picker (hidden; driven by the drawer). -->
+<input id="media-input" type="file" hidden
+       accept=".hdi,.d88,.fdi,.nhd,.thd,.chd,.cue,.iso,.zip">
+
+<!-- ======================================================================
+     Settings modal. Persisted in localStorage; applied to <body> classes and
+     CSS custom properties so nothing has to be rebuilt.
+     ====================================================================== -->
+<div id="settings" aria-hidden="true">
+  <div class="panel">
+    <div class="panel-head">
+      <div class="t">Settings</div>
+      <button class="close" id="settings-close" title="Close" aria-label="Close">✕</button>
+    </div>
+
+    <h3>Display</h3>
+    <div class="field">
+      <span class="lab">Aspect ratio</span>
+      <div class="seg" id="set-aspect">
+        <button data-val="4:3">4:3 Classic</button>
+        <button data-val="fit">Fit Screen</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="lab">CRT scanlines</span>
+      <div class="switch" id="set-scanlines" role="switch" tabindex="0"></div>
+    </div>
+    <div class="field">
+      <span class="lab">Texture filtering</span>
+      <div class="seg" id="set-filter">
+        <button data-val="pixelated">Pixelated</button>
+        <button data-val="bilinear">Bilinear</button>
+      </div>
+    </div>
+
+    <h3>Audio</h3>
+    <div class="field">
+      <span class="lab">Master volume</span>
+      <input type="range" id="set-volume" min="0" max="100" step="1" value="100">
+      <span class="val" id="set-volume-val">100%</span>
+    </div>
+
+    <h3>Touch Controls</h3>
+    <div class="field">
+      <span class="lab">Opacity</span>
+      <input type="range" id="set-opacity" min="20" max="100" step="1" value="92">
+      <span class="val" id="set-opacity-val">92%</span>
+    </div>
+    <div class="field">
+      <span class="lab">Button scale</span>
+      <div class="seg" id="set-scale">
+        <button data-val="small">Small</button>
+        <button data-val="normal">Normal</button>
+        <button data-val="large">Large</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="lab">Haptic feedback</span>
+      <div class="switch" id="set-haptics" role="switch" tabindex="0"></div>
+    </div>
+  </div>
+</div>
+
 <script src="asuka_web.js"></script>
 <script>
 "use strict";
@@ -549,6 +1117,13 @@ function log(msg, cls) {
 const state = {
   Module: null, modulePromise: null, running: false, booting: false,
   pc98: false, mode: "pad", biosDir: BIOS_DIR,
+  // Title of the running game (pause drawer header) and the persisted settings.
+  currentGame: "",
+  settings: null,
+  // True once an engine has powered on in this runtime. The vendored cores
+  // boot only once per process, so once this is set any further load must go
+  // through a page reload (parkAndReload) rather than an in-place init.
+  engineSpent: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -763,6 +1338,7 @@ function bootEngine(machine, mediaPath) {
   state.pc98 = state.Module.ccall("asuka_web_is_pc98", "number", [], []) !== 0;
   state.Module.ccall("asuka_web_start", null, ["number"], [0]);
   state.running = true;
+  state.engineSpent = true;
   revealPlayer();
   log(`running (${state.pc98 ? "pc98" : "fmtowns"})`, "ok");
 }
@@ -795,23 +1371,46 @@ async function loadManifestAssets(manifest) {
   log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
 }
 
-async function autoBoot() {
+// Fetch the bundled manifest, or null when there is none.
+async function fetchManifest() {
+  try {
+    const r = await fetch(`${ASSET_BASE}/manifest.json`, { cache: "no-store" });
+    if (r.ok) return await r.json();
+  } catch (e) { /* no manifest */ }
+  return null;
+}
+
+// Load just the firmware ROMs (no media) so a user image can boot on a fresh
+// runtime that skipped autoBoot (for example after "Exit to library").
+async function loadBundledBios() {
+  const manifest = await fetchManifest();
+  if (!manifest || !Array.isArray(manifest.bios) || !manifest.bios.length) return;
+  loaderSet(4, "Loading firmware…");
+  for (const e of manifest.bios) {
+    await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name);
+  }
+  log(`loaded ${manifest.bios.length} BIOS file(s)`);
+}
+
+async function autoBoot(opts) {
+  opts = opts || {};
   loaderSet(2, "Booting…");
   state.booting = true;
   try {
     // A game parked by a machine switch boots instead of the bundled set.
     const pending = await takePendingGame();
 
-    let manifest = null;
-    try {
-      const r = await fetch(`${ASSET_BASE}/manifest.json`, { cache: "no-store" });
-      if (r.ok) manifest = await r.json();
-    } catch (e) { /* no manifest */ }
+    const manifest = await fetchManifest();
     const haveAssets = manifest && Array.isArray(manifest.bios) &&
       Array.isArray(manifest.media) && (manifest.bios.length || manifest.media.length);
 
     if (!haveAssets && !pending) {
-      throw new Error("No bundled assets found (assets/manifest.json missing).");
+      // Nothing to boot: open the library instead of erroring, so the user can
+      // import a game (or launch a demo).
+      state.currentGame = "";
+      loaderDone();
+      showLibrary();
+      return false;
     }
 
     await waitForIsolation(6000);
@@ -823,25 +1422,40 @@ async function autoBoot() {
     // it and uses its built-in BIOS I/O emulation.
     if (haveAssets) await loadManifestAssets(manifest);
 
-    if (pending) {
+    if (pending && pending.bytes) {
+      // A user image parked by a machine switch: mount it and boot.
       loaderSet(92, "Loading " + pending.name + "…");
       ensureDir(MEDIA_DIR);
       const dest = `${MEDIA_DIR}/${pending.name}`;
       state.Module.FS.writeFile(dest, pending.bytes);
+      state.currentGame = pending.title || pending.name;
       bootEngine(pending.machine, dest);
       return true;
     }
 
-    // The media entry is optional: PC-98 boots from its built-in BIOS I/O
-    // emulation with no disc at all, whereas FM Towns needs a disc. The
-    // manifest names the disc with "cue" (a CUE/BIN or ISO set) or "media".
+    if (!haveAssets) {
+      state.currentGame = "";
+      loaderDone();
+      showLibrary();
+      return false;
+    }
+
+    // Either a fresh page load, or a bundled demo parked by playGame() (which
+    // only records the machine/title). The media entry is optional: PC-98 boots
+    // from its built-in BIOS I/O emulation with no disc at all, whereas FM
+    // Towns needs a disc. The manifest names the disc with "cue" (a CUE/BIN or
+    // ISO set) or "media".
     const mediaName = manifest.cue || manifest.media;
     const mediaPath = mediaName ? `${MEDIA_DIR}/${mediaName}` : "";
-    // The machine comes from ?machine= (so a PC-98 set can be booted without
-    // editing the manifest) or the manifest's "machine" field; FM Towns is the
+    // The machine comes from an explicit option (a library demo) or the parked
+    // demo record, then ?machine= (so a PC-98 set can be booted without editing
+    // the manifest), then the manifest's "machine" field; FM Towns is the
     // default so existing deployments keep working.
-    const wanted = new URLSearchParams(location.search).get("machine") ||
+    const wanted = opts.machine || (pending && pending.machine) ||
+                   new URLSearchParams(location.search).get("machine") ||
                    manifest.machine || "fmtowns";
+    state.currentGame = opts.title || (pending && pending.title) ||
+                        prettyTitle(mediaName || "Bundled game");
     bootEngine(wanted, mediaPath);
     return true;
   } catch (e) {
@@ -853,12 +1467,13 @@ async function autoBoot() {
 }
 
 // Reveal the running machine's controls: hide the loader, focus the canvas,
-// show the input-mode switch (only when it is useful) and the snapshot bar,
-// and refresh the preview. The ROM loader is always available, so it is shown
-// up front rather than here.
+// show the input-mode switch (only when it is useful), the pause button and
+// the snapshot bar, and refresh the previews. The ROM loader is always
+// available, so it is shown up front rather than here.
 function revealPlayer() {
   loaderSet(100, "Running");
   loaderDone();
+  hideLibrary();
   el("canvas").focus();
   // The input-mode switch is useful on touch devices (no keyboard) and on
   // PC-98 generally (the overlay carries the machine's utility keys).
@@ -869,7 +1484,8 @@ function revealPlayer() {
   }
   setInputMode("pad");
   el("snapbar").hidden = false;
-  refreshThumbnail();
+  el("menubtn").classList.add("show");
+  refreshThumbnails();
 }
 
 // ---------------------------------------------------------------------------
@@ -968,8 +1584,9 @@ async function inflateRaw(bytes) {
 // Load a user-supplied image: detect the machine, mount it, and boot. The first
 // image of a session boots the live runtime; a different machine afterwards
 // parks the image and reloads the page to boot it in a fresh runtime (see the
-// section comment for why an in-place swap is not possible).
-async function loadRomFile(file) {
+// section comment for why an in-place swap is not possible). `title` is the
+// display name shown in the drawer and library.
+async function loadRomFile(file, title) {
   if (!file) return;
   let f = file;
   if (extOf(f.name) === "zip") {
@@ -980,18 +1597,26 @@ async function loadRomFile(file) {
   const machine = machineForName(f.name);
   if (!machine) throw new Error("unsupported image: " + f.name);
 
+  state.currentGame = title || f.name;
+
   // A machine cannot be re-initialised in place (see the section comment), so
-  // any load once a runtime exists — a different machine or a fresh disc —
-  // parks the image and reloads. Only a cold start (no engine yet) boots in
-  // place.
-  if (state.running || state.booting) {
-    await parkAndReload(f, machine);
+  // any load once an engine has powered on — a different machine or a fresh
+  // disc — parks the image and reloads. Only a cold start (no engine yet)
+  // boots in place.
+  if (state.engineSpent || state.booting) {
+    await parkAndReload(f, machine, state.currentGame);
     return;
   }
 
   await waitForIsolation(6000);
   await loadModule();
   try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
+  // FM Towns needs its firmware ROMs; fetch the bundled set when this runtime
+  // skipped autoBoot (e.g. it opened straight into the library). PC-98 ignores
+  // them and uses its built-in BIOS I/O emulation.
+  if (machine !== "pc98") {
+    try { await loadBundledBios(); } catch (e) { log("firmware load: " + (e.message || e), "err"); }
+  }
 
   // Mount into /media under the file's own name; the engine takes the path.
   ensureDir(MEDIA_DIR);
@@ -1012,18 +1637,53 @@ async function loadRomFile(file) {
     state.Module.ccall("asuka_web_start", null, ["number"], [0]);
     state.running = true;
   }
+  state.engineSpent = true;
   revealPlayer();
   log(`running (${state.pc98 ? "pc98" : "fmtowns"}, ${f.name})`, "ok");
+}
+
+// Import a picked/dropped image: keep a copy in the library so it appears in
+// the grid next time, then boot it. A zip is unwrapped first so the stored
+// copy is the actual image (not the archive).
+async function importRomFile(file) {
+  if (!file) return;
+  let f = file;
+  if (extOf(f.name) === "zip") {
+    loaderSet(2, "Unpacking " + f.name + "…");
+    f = await firstZipEntry(f);
+  }
+  const machine = machineForName(f.name);
+  if (!machine) throw new Error("unsupported image: " + f.name);
+
+  const title = prettyTitle(f.name);
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    // Keep both the display title and the original filename: the extension of
+    // the latter is what picks the machine when the game is played from the
+    // library (the title has no extension).
+    await gamesAdd({ id: machine + ":" + f.name, name: title, file: f.name,
+                     machine, bytes });
+  } catch (e) {
+    log("could not add to library: " + (e.message || e), "err");
+  }
+  await loadRomFile(new File([f], f.name), title);
+}
+
+// "Rance.d88" -> "Rance"; "Afterburner (1987)(Sega)(Jp-En).cue" -> readable.
+function prettyTitle(name) {
+  let base = name.replace(/\.[^.]+$/, "");
+  base = base.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+  return base || name;
 }
 
 // Park a game image in IndexedDB and reload so a fresh runtime boots it. The
 // reloaded page reads the parked record back (see takePendingGame) instead of
 // the bundled manifest.
-async function parkAndReload(f, machine) {
+async function parkAndReload(f, machine, title) {
   loaderSet(4, "Switching to " + (machine === "pc98" ? "PC-98" : "FM Towns") + "…");
   try {
     const bytes = new Uint8Array(await f.arrayBuffer());
-    await idbPut("pending", { name: f.name, machine, bytes });
+    await idbPut("pending", { name: f.name, machine, bytes, title: title || "" });
   } catch (e) {
     throw new Error("could not stage the image: " + (e.message || e));
   }
@@ -1031,21 +1691,54 @@ async function parkAndReload(f, machine) {
   location.reload();
 }
 
-// Minimal IndexedDB key/value store for the parked game image. The snapshot
-// FS already uses IndexedDB, so this costs nothing on browsers that have it.
+// Minimal IndexedDB store backing the parked game image and the games library.
+// The snapshot FS already uses IndexedDB, so this costs nothing on browsers
+// that have it. "kv" holds single records (the parked game); "games" holds the
+// library entries, keyed by id.
+const IDB_NAME = "asuka-game";
+const IDB_VERSION = 2;
+
 function idbOpen() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("asuka-game", 1);
-    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      if (!db.objectStoreNames.contains("games")) db.createObjectStore("games");
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 async function idbPut(key, value) {
+  return idbPutIn("kv", value, key);
+}
+async function idbPutIn(store, value, key) {
   const db = await idbOpen();
   await new Promise((resolve, reject) => {
-    const tx = db.transaction("kv", "readwrite");
-    tx.objectStore("kv").put(value, key);
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+async function idbGetAll(store) {
+  const db = await idbOpen();
+  const rows = await new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return rows;
+}
+async function idbDelete(store, key) {
+  const db = await idbOpen();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -1064,26 +1757,33 @@ async function idbTake(key) {
   return value;
 }
 
-// Read back a game parked by parkAndReload. Returns null when there is none.
+// Read back a game parked by parkAndReload (a user image) or a bundled demo
+// staged by playGame(). Returns null when there is none.
 async function takePendingGame() {
   try {
     const rec = await idbTake("pending");
-    if (rec && rec.bytes && rec.machine) return rec;
+    if (rec && rec.machine) return rec;
   } catch (e) { /* IndexedDB unavailable: fall through */ }
   return null;
+}
+
+// Open the ROM picker (shared by the floating button and the library tile).
+function pickRomFile() {
+  const input = el("rom-input");
+  input.value = "";       // re-selecting the same file still fires change
+  input.click();
 }
 
 function wireRomLoader() {
   const input = el("rom-input");
   el("rombtn").addEventListener("click", (e) => {
     e.preventDefault();
-    input.value = "";       // re-selecting the same file still fires change
-    input.click();
+    pickRomFile();
   });
   el("rombtn").addEventListener("contextmenu", (e) => e.preventDefault());
   input.addEventListener("change", () => {
     const file = input.files && input.files[0];
-    if (file) loadRomFile(file).catch((err) => bootFail(err.message || String(err)));
+    if (file) importRomFile(file).catch((err) => bootFail(err.message || String(err)));
   });
 }
 
@@ -1118,7 +1818,7 @@ function wireDragDrop() {
     depth = 0;
     showDrop(false);
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (file) loadRomFile(file).catch((err) => bootFail(err.message || String(err)));
+    if (file) importRomFile(file).catch((err) => bootFail(err.message || String(err)));
   });
 }
 
@@ -1159,9 +1859,19 @@ const PHYS_TO_PC98 = {
 };
 
 function onKey(e, on) {
+  // Overlays swallow keys: Escape closes the top-most one, and nothing reaches
+  // the emulated machine while a panel is open.
+  if (on && e.code === "Escape") {
+    if (el("settings").classList.contains("show")) { closeSettings(); e.preventDefault(); return; }
+    if (menuOpen()) { closeMenu(true); e.preventDefault(); return; }
+    if (libraryVisible()) { e.preventDefault(); return; }
+    if (state.running) { openMenu(); e.preventDefault(); return; }
+  }
+  if (menuOpen() || el("settings").classList.contains("show")) return;
+
   if (on && e.code === "F11") { toggleFullscreen(); e.preventDefault(); return; }
-  if (on && e.code === "F2" && !state.pc98) { saveSnapshot(); e.preventDefault(); return; }
-  if (on && e.code === "F4" && !state.pc98) { loadSnapshot(); e.preventDefault(); return; }
+  if (on && e.code === "F2" && !state.pc98) { saveSnapshot(SNAP_SLOT); e.preventDefault(); return; }
+  if (on && e.code === "F4" && !state.pc98) { loadSnapshot(SNAP_SLOT); e.preventDefault(); return; }
   if (on && e.code === "KeyR" && !e.ctrlKey && !e.metaKey) { reset(); e.preventDefault(); return; }
 
   if (state.pc98) {
@@ -1214,6 +1924,7 @@ function bindHold(btn, down, up) {
     e.stopPropagation();
     try { btn.setPointerCapture(e.pointerId); } catch (_) { /* not critical */ }
     btn.classList.add("on");
+    buzz(12);
     down();
   };
   const onUp = (e) => {
@@ -1245,14 +1956,16 @@ function wireKeyboard() {
 }
 
 // ---------------------------------------------------------------------------
-// Visual snapshots: save/load slot 1 with a thumbnail preview.
+// Visual snapshots: N slots, each a state file plus a BMP thumbnail.
 //
 // The engine writes /bios/snapshots/slotN.state plus a BMP thumbnail beside
 // it. The thumbnail is turned into a blob URL for the preview; FS.syncfs()
-// flushes both to IndexedDB so they survive a reload.
+// flushes both to IndexedDB so they survive a reload. Slot 1 also drives the
+// compact snapshot bar; all slots appear in the pause drawer's carousel.
 // ---------------------------------------------------------------------------
-const SNAP_SLOT = 1;
-let thumbUrl = null;
+const SNAP_SLOTS = [1, 2, 3];
+const SNAP_SLOT = 1;                 // the slot the quick snapshot bar uses
+const thumbUrls = new Map();         // slot -> object URL
 
 function snapToast(msg) {
   const t = el("snap-toast");
@@ -1262,33 +1975,50 @@ function snapToast(msg) {
   snapToast._timer = setTimeout(() => t.classList.remove("show"), 1400);
 }
 
-// Read the slot's thumbnail BMP from the virtual FS and show it as the
-// preview background. Clears the preview when no thumbnail exists.
-function refreshThumbnail() {
-  const thumb = el("snap-thumb");
-  if (!state.Module) return;
+// Build a blob URL for a slot's thumbnail, or null when there is none.
+function thumbnailUrl(slot) {
+  if (!state.Module) return null;
   const heap = state.Module.HEAPU8;
-  if (!heap) return;  // heap view not exported; skip the preview
+  if (!heap) return null;  // heap view not exported; skip the preview
   const ptr = state.Module.ccall("asuka_web_get_snapshot_thumbnail", "number",
-                                 ["number"], [SNAP_SLOT]);
+                                 ["number"], [slot]);
   const size = state.Module.ccall("asuka_web_snapshot_thumbnail_size", "number",
                                   [], []);
-
-  if (!ptr || size <= 0) {
-    thumb.classList.remove("filled");
-    thumb.style.backgroundImage = "";
-    thumb.textContent = "SLOT " + SNAP_SLOT;
-    log("slot " + SNAP_SLOT + ": no thumbnail", "err");
-    return;
-  }
-
+  if (!ptr || size <= 0) return null;
   const bytes = new Uint8Array(heap.buffer, ptr, size).slice();
   const blob = new Blob([bytes], { type: "image/bmp" });
-  if (thumbUrl) URL.revokeObjectURL(thumbUrl);
-  thumbUrl = URL.createObjectURL(blob);
-  thumb.style.backgroundImage = `url(${thumbUrl})`;
-  thumb.classList.add("filled");
-  log("slot " + SNAP_SLOT + ": thumbnail " + size + " bytes", "ok");
+  const old = thumbUrls.get(slot);
+  if (old) URL.revokeObjectURL(old);
+  const url = URL.createObjectURL(blob);
+  thumbUrls.set(slot, url);
+  return url;
+}
+
+// Paint a slot's preview element (.shot or #snap-thumb) from its thumbnail.
+function paintThumb(elem, slot, emptyLabel) {
+  if (!elem) return;
+  const url = thumbnailUrl(slot);
+  if (!url) {
+    elem.classList.remove("filled");
+    elem.style.backgroundImage = "";
+    elem.textContent = emptyLabel;
+    return;
+  }
+  elem.style.backgroundImage = `url(${url})`;
+  elem.classList.add("filled");
+  elem.textContent = "";
+}
+
+// Refresh the quick bar (slot 1) and every drawer carousel slot.
+function refreshThumbnails() {
+  if (!state.Module) return;
+  paintThumb(el("snap-thumb"), SNAP_SLOT, "SLOT " + SNAP_SLOT);
+  for (const slot of SNAP_SLOTS) {
+    paintThumb(el("slot-shot-" + slot), slot, "EMPTY");
+    const load = el("slot-load-" + slot);
+    if (load) load.disabled = !state.Module.ccall(
+      "asuka_web_has_snapshot", "number", ["number"], [slot]);
+  }
 }
 
 function persistFS() {
@@ -1300,52 +2030,442 @@ function persistFS() {
   }
 }
 
-function saveSnapshot() {
+function saveSnapshot(slot) {
+  slot = slot || SNAP_SLOT;
   if (!state.Module) return;
   const ok = state.Module.ccall("asuka_web_save_snapshot", "number",
-                                ["number"], [SNAP_SLOT]);
+                                ["number"], [slot]);
   if (!ok) {
     snapToast("snapshot failed");
-    log("save_snapshot failed", "err");
+    log("save_snapshot failed (slot " + slot + ")", "err");
     return;
   }
-  refreshThumbnail();
+  refreshThumbnails();
   persistFS();
-  snapToast("saved");
-  log("snapshot saved to slot " + SNAP_SLOT, "ok");
+  snapToast("saved slot " + slot);
+  log("snapshot saved to slot " + slot, "ok");
 }
 
-function loadSnapshot() {
+function loadSnapshot(slot) {
+  slot = slot || SNAP_SLOT;
   if (!state.Module) return;
   if (!state.Module.ccall("asuka_web_has_snapshot", "number",
-                          ["number"], [SNAP_SLOT])) {
-    snapToast("no snapshot");
+                          ["number"], [slot])) {
+    snapToast("no snapshot in slot " + slot);
     return;
   }
   const ok = state.Module.ccall("asuka_web_load_snapshot", "number",
-                                ["number"], [SNAP_SLOT]);
-  snapToast(ok ? "loaded" : "load failed");
-  log(ok ? "snapshot loaded from slot " + SNAP_SLOT : "load_snapshot failed",
+                                ["number"], [slot]);
+  snapToast(ok ? "loaded slot " + slot : "load failed");
+  log(ok ? "snapshot loaded from slot " + slot : "load_snapshot failed",
       ok ? "ok" : "err");
 }
 
 function wireSnapshots() {
-  el("snap-save").addEventListener("click", (e) => { e.stopPropagation(); saveSnapshot(); });
-  el("snap-load").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(); });
+  el("snap-save").addEventListener("click", (e) => { e.stopPropagation(); saveSnapshot(SNAP_SLOT); });
+  el("snap-load").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(SNAP_SLOT); });
   // Tapping the preview loads too, mirroring the LOAD button.
-  el("snap-thumb").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(); });
+  el("snap-thumb").addEventListener("click", (e) => { e.stopPropagation(); loadSnapshot(SNAP_SLOT); });
+}
+
+// Build the drawer's three-slot snapshot carousel once, then update it live.
+function buildSlotCarousel() {
+  const wrap = el("menu-slots");
+  wrap.innerHTML = "";
+  for (const slot of SNAP_SLOTS) {
+    const box = document.createElement("div");
+    box.className = "slot";
+    box.innerHTML =
+      `<div class="shot" id="slot-shot-${slot}">EMPTY</div>` +
+      `<div class="ops">` +
+      `<button id="slot-save-${slot}">SAVE</button>` +
+      `<button id="slot-load-${slot}">LOAD</button>` +
+      `</div>` +
+      `<div class="tag">SLOT ${slot}</div>`;
+    wrap.appendChild(box);
+    box.querySelector(`#slot-save-${slot}`)
+      .addEventListener("click", () => saveSnapshot(slot));
+    box.querySelector(`#slot-load-${slot}`)
+      .addEventListener("click", () => loadSnapshot(slot));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Settings: persisted in localStorage, applied to <body> classes and CSS
+// custom properties so nothing in the DOM tree has to be rebuilt.
+// ---------------------------------------------------------------------------
+const SETTINGS_KEY = "asuka.settings";
+const SETTINGS_DEFAULTS = {
+  aspect: "4:3",          // "4:3" | "fit"
+  scanlines: false,
+  filter: "pixelated",    // "pixelated" | "bilinear"
+  volume: 100,
+  opacity: 92,            // touch-surface opacity, 20..100
+  scale: "normal",        // "small" | "normal" | "large"
+  haptics: false,
+};
+
+function loadSettings() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") || {};
+  } catch (e) { saved = {}; }
+  return Object.assign({}, SETTINGS_DEFAULTS, saved);
+}
+
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); }
+  catch (e) { /* private mode: settings just do not persist */ }
+}
+
+const PAD_SCALE = { small: 0.82, normal: 1, large: 1.22 };
+
+function applySettings() {
+  const s = state.settings;
+  document.body.classList.toggle("fit", s.aspect === "fit");
+  document.body.classList.toggle("scanlines", !!s.scanlines);
+  document.body.classList.toggle("smooth", s.filter === "bilinear");
+  document.documentElement.style.setProperty("--pad-opacity", (s.opacity / 100).toFixed(3));
+  const k = PAD_SCALE[s.scale] || 1;
+  document.documentElement.style.setProperty("--pad-scale", k.toFixed(3));
+  document.documentElement.style.setProperty("--kbd-scale", k.toFixed(3));
+  if (state.Module) {
+    state.Module.ccall("asuka_web_set_volume", null, ["number"], [s.volume | 0]);
+  }
+}
+
+// Reflect the settings object into the modal's controls.
+function syncSettingsUI() {
+  const s = state.settings;
+  for (const b of document.querySelectorAll("#set-aspect button")) {
+    b.classList.toggle("on", b.dataset.val === s.aspect);
+  }
+  for (const b of document.querySelectorAll("#set-filter button")) {
+    b.classList.toggle("on", b.dataset.val === s.filter);
+  }
+  for (const b of document.querySelectorAll("#set-scale button")) {
+    b.classList.toggle("on", b.dataset.val === s.scale);
+  }
+  el("set-scanlines").classList.toggle("on", !!s.scanlines);
+  el("set-haptics").classList.toggle("on", !!s.haptics);
+  el("set-volume").value = s.volume;
+  el("set-volume-val").textContent = s.volume + "%";
+  el("set-opacity").value = s.opacity;
+  el("set-opacity-val").textContent = s.opacity + "%";
+}
+
+function setSetting(key, value) {
+  state.settings[key] = value;
+  saveSettings();
+  applySettings();
+  syncSettingsUI();
+}
+
+function wireSettings() {
+  for (const b of document.querySelectorAll("#set-aspect button")) {
+    b.addEventListener("click", () => setSetting("aspect", b.dataset.val));
+  }
+  for (const b of document.querySelectorAll("#set-filter button")) {
+    b.addEventListener("click", () => setSetting("filter", b.dataset.val));
+  }
+  for (const b of document.querySelectorAll("#set-scale button")) {
+    b.addEventListener("click", () => setSetting("scale", b.dataset.val));
+  }
+  const toggle = (id, key) => {
+    const sw = el(id);
+    const flip = () => setSetting(key, !state.settings[key]);
+    sw.addEventListener("click", flip);
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); }
+    });
+  };
+  toggle("set-scanlines", "scanlines");
+  toggle("set-haptics", "haptics");
+  el("set-volume").addEventListener("input", (e) =>
+    setSetting("volume", Number(e.target.value)));
+  el("set-opacity").addEventListener("input", (e) =>
+    setSetting("opacity", Number(e.target.value)));
+  el("settings-close").addEventListener("click", closeSettings);
+  // Clicking the backdrop (not the panel) closes.
+  el("settings").addEventListener("click", (e) => {
+    if (e.target === el("settings")) closeSettings();
+  });
+}
+
+function openSettings() { el("settings").classList.add("show"); }
+function closeSettings() { el("settings").classList.remove("show"); }
+
+// Haptic pulse for touch controls, when enabled and supported.
+function buzz(ms) {
+  if (state.settings && state.settings.haptics && navigator.vibrate) {
+    try { navigator.vibrate(ms); } catch (e) { /* ignore */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Games library: a launcher grid of imported images, stored in IndexedDB.
+//
+// Each record is { id, name, machine, bytes }. The image bytes live in the
+// same object store, so a "Play" boots straight from storage without the user
+// re-picking a file.
+// ---------------------------------------------------------------------------
+const DEMO_GAMES = [
+  { id: "demo-nzs", name: "The New Zealand Story", machine: "fmtowns", demo: true, glyph: "🐤" },
+  { id: "demo-afterburner", name: "After Burner", machine: "fmtowns", demo: true, glyph: "✈️" },
+];
+
+function gameGlyph(machine) {
+  return machine === "pc98" ? "💾" : "💿";
+}
+
+function machineLabel(machine) {
+  return machine === "pc98" ? "PC-98" : "FM Towns";
+}
+
+function gamesAll() {
+  return idbGetAll("games");
+}
+async function gamesAdd(rec) {
+  await idbPutIn("games", rec, rec.id);
+}
+async function gamesDelete(id) {
+  await idbDelete("games", id);
+}
+
+async function renderLibrary() {
+  const grid = el("library-grid");
+  const empty = el("library-empty");
+  let stored = [];
+  try { stored = await gamesAll(); } catch (e) { stored = []; }
+  stored.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+  grid.innerHTML = "";
+
+  // Import tile first, so it is always reachable.
+  const imp = document.createElement("div");
+  imp.className = "card import";
+  imp.id = "library-import";
+  imp.innerHTML = `<div class="art">＋</div><div class="label">IMPORT ROM</div>`;
+  imp.addEventListener("click", () => pickRomFile());
+  grid.appendChild(imp);
+
+  // Demo cards (playable only when a matching bundled image exists; otherwise
+  // they are shown as a taste of what the library looks like).
+  for (const g of DEMO_GAMES) {
+    grid.appendChild(gameCard(g));
+  }
+
+  // User-imported games.
+  for (const g of stored) {
+    grid.appendChild(gameCard(g));
+  }
+
+  el("library-count").textContent =
+    (stored.length ? stored.length + " imported" : "no imports yet");
+  empty.hidden = stored.length > 0;
+}
+
+function gameCard(g) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.dataset.id = g.id;
+  const sub = g.demo ? "Bundled demo" : "Imported";
+  card.innerHTML =
+    `<div class="art">${g.glyph || gameGlyph(g.machine)}` +
+    `<span class="badge ${g.machine}">${machineLabel(g.machine)}</span></div>` +
+    `<div class="meta"><div class="info">` +
+    `<div class="title">${escapeHtml(g.name)}</div>` +
+    `<div class="sub">${sub}</div></div>` +
+    `<button class="play">▶ PLAY</button></div>` +
+    (g.demo ? "" : `<button class="del" title="Remove">✕</button>`);
+
+  card.querySelector(".play").addEventListener("click", () => playGame(g));
+  const del = card.querySelector(".del");
+  if (del) del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await gamesDelete(g.id);
+    renderLibrary();
+  });
+  return card;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Boot a library entry. A stored game carries its own bytes; a demo has none,
+// so it falls back to the bundled image for its machine (via a reload when an
+// engine has already powered on, since a core cannot be re-initialised in
+// place).
+async function playGame(g) {
+  if (g.bytes) {
+    // Rebuild the file with its original name so the extension still picks the
+    // machine (the stored title has none).
+    const name = g.file || (g.name + "." + (g.machine === "pc98" ? "d88" : "chd"));
+    const file = new File([g.bytes], name, { type: "application/octet-stream" });
+    hideLibrary();
+    try {
+      await loadRomFile(file, g.name);
+    } catch (e) {
+      showLibrary();
+      bootFail(e.message || String(e));
+    }
+    return;
+  }
+
+  // Demo without bytes: boot the bundled image for its machine.
+  if (state.engineSpent || state.booting) {
+    hideLibrary();
+    try {
+      await idbPut("pending", { name: "", machine: g.machine, bytes: null,
+                                title: g.name, bundled: true });
+    } catch (e) {
+      showLibrary();
+      bootFail("could not stage the demo: " + (e.message || e));
+      return;
+    }
+    location.reload();
+    return;
+  }
+  hideLibrary();
+  try {
+    await autoBoot({ machine: g.machine, title: g.name });
+  } catch (e) {
+    showLibrary();
+    bootFail(e.message || String(e));
+  }
+}
+
+function showLibrary() {
+  el("library").classList.add("show");
+  el("library").setAttribute("aria-hidden", "false");
+  renderLibrary();
+}
+function hideLibrary() {
+  el("library").classList.remove("show");
+  el("library").setAttribute("aria-hidden", "true");
+}
+function libraryVisible() {
+  return el("library").classList.contains("show");
+}
+
+// ---------------------------------------------------------------------------
+// Pause drawer.
+// ---------------------------------------------------------------------------
+function menuOpen() { return el("menu").classList.contains("show"); }
+
+function openMenu() {
+  if (!state.running) return;
+  el("menu-title").textContent = state.currentGame || "Game";
+  el("menu-machine").textContent = machineLabel(state.pc98 ? "pc98" : "fmtowns");
+  refreshThumbnails();
+  el("scrim").classList.add("show");
+  el("menu").classList.add("show");
+  el("menu").setAttribute("aria-hidden", "false");
+  if (state.Module) state.Module.ccall("asuka_web_set_paused", null, ["number"], [1]);
+  releaseAll();
+}
+
+function closeMenu(resume) {
+  el("scrim").classList.remove("show");
+  el("menu").classList.remove("show");
+  el("menu").setAttribute("aria-hidden", "true");
+  if (resume !== false && state.Module) {
+    state.Module.ccall("asuka_web_set_paused", null, ["number"], [0]);
+  }
+}
+
+function wireMenu() {
+  el("menubtn").addEventListener("click", (e) => { e.preventDefault(); openMenu(); });
+  el("menubtn").addEventListener("contextmenu", (e) => e.preventDefault());
+  el("menu-close").addEventListener("click", () => closeMenu(true));
+  el("menu-resume").addEventListener("click", () => closeMenu(true));
+  el("scrim").addEventListener("click", () => closeMenu(true));
+
+  el("menu-settings").addEventListener("click", () => openSettings());
+
+  el("menu-reset").addEventListener("click", () => {
+    reset();
+    state.currentGame = state.currentGame || "";
+    closeMenu(true);
+    snapToast("machine reset");
+  });
+
+  el("menu-media").addEventListener("click", () => {
+    const input = el("media-input");
+    input.value = "";
+    input.click();
+  });
+  el("media-input").addEventListener("change", async () => {
+    const file = el("media-input").files && el("media-input").files[0];
+    if (!file) return;
+    try {
+      await swapMedia(file);
+      closeMenu(true);
+    } catch (e) {
+      snapToast("swap failed");
+      log("media swap failed: " + (e.message || e), "err");
+    }
+  });
+
+  el("menu-exit").addEventListener("click", () => exitToLibrary());
+}
+
+// Swap the running machine's media in place (no cold boot).
+async function swapMedia(file) {
+  let f = file;
+  if (extOf(f.name) === "zip") f = await firstZipEntry(f);
+  const machine = machineForName(f.name);
+  if (!machine) throw new Error("unsupported image: " + f.name);
+  if (machine !== (state.pc98 ? "pc98" : "fmtowns")) {
+    // A different machine cannot be swapped in place; boot it in a fresh one.
+    await parkAndReload(f, machine);
+    return;
+  }
+  ensureDir(MEDIA_DIR);
+  const dest = `${MEDIA_DIR}/${f.name}`;
+  state.Module.FS.writeFile(dest, new Uint8Array(await f.arrayBuffer()));
+  const ok = state.Module.ccall("asuka_web_swap_media", "number",
+                                ["string"], [dest]);
+  if (!ok) {
+    const err = state.Module.UTF8ToString(
+      state.Module.ccall("asuka_web_last_error", "number", [], []));
+    throw new Error(err || "swap failed");
+  }
+  snapToast("media swapped");
+  log("media swapped to " + f.name, "ok");
+}
+
+// Shut the machine down and return to the library grid.
+function exitToLibrary() {
+  closeMenu(false);
+  closeSettings();
+  // A core cannot be re-initialised in-process once it has powered on (see the
+  // ROM loader notes), so a clean "exit" reloads the page and tells the fresh
+  // runtime to open the library instead of auto-booting the bundled image.
+  try { sessionStorage.setItem("asuka.exitToLibrary", "1"); } catch (e) { /* ignore */ }
+  location.reload();
 }
 
 // ---------------------------------------------------------------------------
 // Boot the page.
 // ---------------------------------------------------------------------------
 window.addEventListener("DOMContentLoaded", () => {
+  // Settings first: they restyle the shell and set the audio gain before boot.
+  state.settings = loadSettings();
+  applySettings();
+  syncSettingsUI();
+
   wirePad();
   wireKeyboard();
   wireModeButton();
   wireSnapshots();
   wireRomLoader();
   wireDragDrop();
+  wireSettings();
+  buildSlotCarousel();
+  wireMenu();
 
   // Physical keyboard: listen on the window so it works whatever has focus,
   // and keep the canvas focused so the SDL2 listener sees the events too.
@@ -1368,7 +2488,15 @@ window.addEventListener("DOMContentLoaded", () => {
   if (!window.crossOriginIsolated) {
     log("warning: not cross-origin isolated — threads need COOP/COEP.", "err");
   }
-  autoBoot();
+
+  // "Exit to library" reloads with a marker: open the grid instead of booting.
+  let exit = false;
+  try {
+    exit = sessionStorage.getItem("asuka.exitToLibrary") === "1";
+    sessionStorage.removeItem("asuka.exitToLibrary");
+  } catch (e) { /* ignore */ }
+  if (exit) { loaderDone(); showLibrary(); }
+  else { autoBoot(); }
 });
 </script>
 </body>
