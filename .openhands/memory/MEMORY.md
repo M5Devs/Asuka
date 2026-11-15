@@ -79,6 +79,22 @@ durable, cross-task subset.
 - **`IEngineCore::send_scancode(int,bool)`** (default no-op) carries keys the
   `asuka::Key` set can't express.
 
+### X68000 (PX68k, `plugins/x68k`) — third core
+- Wraps **PX68k** (submodule `plugins/x68k/vendor/PX68k`,
+  `libretro/px68k-libretro`) via Libretro, like the PC-98 adapter. 768×512
+  RGB565→XRGB8888.
+- **315 strong symbols collide** with NP2kai (both vendor Libretro +
+  libretro-common + fmgen). wasm-ld can't scope per-symbol; llvm-objcopy can't
+  rename wasm symbols. Fix = compile-time prefix shim
+  `plugins/x68k/x68k_symbol_prefix.h` (renames 178 C + 137 C++ names to
+  `px68k_*`), force-included via **one** wrapper `x68k_force_include.h`
+  (two `-include` flags break CMake with "cannot specify '-o' with '-c'").
+- **Keys are Libretro RetroKey codes** (RETURN=13, ESCAPE=27, arrows
+  273/274/276/275, F1..F5 282..286, letters ASCII) — *not* PC-98 codes.
+  PX68k polls `RETRO_DEVICE_KEYBOARD`; `send_scancode()` stores them in
+  `g_held_keys_kbd[]`.
+- Test skips when `test_assets/x68k_bios` (IPL ROMs) is absent; `ctest` = 6/6.
+
 ## Web shell (`web/index.html`) — current state
 - PPSSPP-style shell: **games library** launcher, **pause drawer**, **settings
   modal**, floating **📁 ROM** picker + universal drag & drop, gamepad ⇄ PC-98
@@ -105,13 +121,19 @@ durable, cross-task subset.
   `null function`), so `state.engineSpent` stays set and the *next* boot still
   parks+reloads. `loadRomFile` fetches the bundled BIOS itself
   (`loadBundledBios()`) when it boots from the library.
-- C API (`src/web/main_web.cpp`): `asuka_web_load_rom(machine, media)`,
-  `asuka_web_key`, `asuka_web_scancode`, `asuka_web_is_pc98`,
+- C API (`src/web/main_web.cpp`): `asuka_web_load_rom(bios_dir, machine,
+  media_path)` (3-arg; `bios_dir` sets `g_state.bios_dir` for the cold-start
+  ROM-picker/drag-drop path), `asuka_web_key`, `asuka_web_scancode`,
+  `asuka_web_is_pc98`, `asuka_web_is_x68k`, `asuka_web_machine`,
   `asuka_web_input_events` (counts input calls — the headless input proof),
   `asuka_web_set_paused`/`is_paused`, `asuka_web_set_volume`/`get_volume` (gain
   applied when queueing PCM — `SDL_QueueAudio` has no device volume),
   `asuka_web_swap_media` (re-calls `engine->load_media()`), snapshot APIs
-  (`save/load_snapshot`, `has_snapshot`, `snapshot_thumbnail[_size]`).
+  (`save/load/delete_snapshot`, `has_snapshot`, `snapshot_thumbnail[_size]`).
+- `machineForName` extension table spans PC-98 (`.hdi/.d88/.fdi/.nhd/.thd`),
+  X68000 (`.dim/.xdf/.hds/.hdf/.m3u`) and FM Towns (`.chd/.iso/.cue`) + `.zip`.
+  `state.x68k` drives the keyboard surface. Snapshot slots expose
+  DEL/EXP/IMP (export downloads the `.state`, import writes one back).
 - `asuka_web_init(bios_dir, media_path, machine)` (3rd arg default `"fmtowns"`).
   Machine from `?machine=` → `manifest.machine` → `"fmtowns"`.
 - **Snapshot thumbnail = sidecar `.bmp`** (bottom-up 24-bit) written *after*
