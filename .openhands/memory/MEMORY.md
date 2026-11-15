@@ -92,9 +92,19 @@ durable, cross-task subset.
 - Library records keep the **original filename** (`file`) as well as the display
   `name` — `machineForName()` keys off the extension and the pretty title has
   none. IDB db `asuka-game` v2 adds the `games` store (`kv` = parked record).
-- "Exit to library" reloads with `sessionStorage['asuka.exitToLibrary']="1"`;
-  boot reads it to open the grid. With the library open on a fresh runtime,
-  `loadRomFile` fetches the bundled BIOS itself (`loadBundledBios()`).
+- **Home = the library, not a boot.** `DOMContentLoaded` boots only when
+  `?boot=` / `?machine=` is present **or** a game is parked (`hasPendingGame()`
+  = non-destructive `idbGet("pending")` peek). Otherwise `loaderDone();
+  showLibrary()`. `showLibrary/hideLibrary` toggle `body.library-mode`, which
+  hides `#stage/#pad/#kbd/#tools`; `loaderShow()` re-arms the loader for an
+  in-place boot after the library. Bundled demo = one manifest-driven
+  `featured` card (`demoGames()`), not a hard-coded list.
+- **"Exit to library" is in-place** (`asuka_web_stop` + `asuka_web_shutdown`,
+  hide chrome, `showLibrary()`) — no reload. But a core still cannot be
+  re-inited in process (probed: FM→FM ok; 2nd PC-98 fails; FM-after-PC98 traps
+  `null function`), so `state.engineSpent` stays set and the *next* boot still
+  parks+reloads. `loadRomFile` fetches the bundled BIOS itself
+  (`loadBundledBios()`) when it boots from the library.
 - C API (`src/web/main_web.cpp`): `asuka_web_load_rom(machine, media)`,
   `asuka_web_key`, `asuka_web_scancode`, `asuka_web_is_pc98`,
   `asuka_web_input_events` (counts input calls — the headless input proof),
