@@ -6,6 +6,24 @@
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <title>Asuka — FM Towns / PC-98 / X68000</title>
+<!-- On-device devtools: console, network and IndexedDB inspection on mobile,
+     where there is no desktop inspector. Loaded from a CDN and guarded, so a
+     blocked/slow CDN never delays or breaks the shell. The small floating
+     entry button toggles the panel open and closed. -->
+<script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+<script>
+  if (window.eruda) {
+    try {
+      eruda.init();
+      // Keep the entry button clear of the on-screen gamepad, which owns the
+      // bottom-right corner: nudge it to the right edge, above the D-pad band.
+      eruda.position({
+        x: Math.max(8, window.innerWidth - 50),
+        y: Math.round(window.innerHeight * 0.36),
+      });
+    } catch (e) { /* devtools are best-effort */ }
+  }
+</script>
 <style>
   :root {
     --cell: clamp(46px, 9.5vmin, 70px);
@@ -1384,15 +1402,19 @@ function bootEngine(machine, mediaPath) {
   log(`running (${state.pc98 ? "pc98" : state.x68k ? "x68k" : "fmtowns"})`, "ok");
 }
 
-// Stream the manifest's BIOS and media files into the virtual FS with progress.
-async function loadManifestAssets(manifest) {
+// Stream a set of manifest entries ({name,url,size,dir}) into the virtual FS
+// with progress. Shared by the bundled auto-boot (BIOS + media) and by a
+// library demo (its own firmware + disc), so a deployment can ship more than
+// one playable title.
+async function loadAssetEntries(entries, manifest) {
+  if (!entries || !entries.length) return;
   // Prefer the manifest's exact byte sizes: some hosts report a compressed
   // content-length on HEAD that does not match the decoded body we stream.
-  const all = [...manifest.bios, ...manifest.media];
-  let totalBytes = manifest.totalBytes || all.reduce((a, e) => a + (e.size || 0), 0);
+  let totalBytes = (manifest && manifest.totalBytes) ||
+    entries.reduce((a, e) => a + (e.size || 0), 0);
   if (!totalBytes) {
     try {
-      const head = await Promise.all(all.map(async (e) =>
+      const head = await Promise.all(entries.map(async (e) =>
         Number((await fetch(`${ASSET_BASE}/${e.url}`, { method: "HEAD" }))
           .headers.get("content-length")) || 0));
       totalBytes = head.reduce((a, b) => a + b, 0);
@@ -1406,10 +1428,19 @@ async function loadManifestAssets(manifest) {
     loaderSet(pct, `Loading ${(loaded / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MB`);
   };
 
-  loaderSet(4, "Loading BIOS & disc…");
-  for (const e of manifest.bios) await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name, bump);
-  for (const e of manifest.media) await fetchToFS(`${ASSET_BASE}/${e.url}`, MEDIA_DIR, e.name, bump);
-  log(`auto-loaded ${manifest.bios.length} BIOS file(s), ${manifest.media.length} media file(s)`);
+  loaderSet(4, "Loading firmware & disc…");
+  for (const e of entries) {
+    await fetchToFS(`${ASSET_BASE}/${e.url}`, e.dir || MEDIA_DIR, e.name, bump);
+  }
+  log(`auto-loaded ${entries.length} file(s)`);
+}
+
+// Tag manifest entries with the directory each one mounts into.
+function tagAssetDirs(bios, media) {
+  return [
+    ...(bios || []).map((e) => ({ ...e, dir: BIOS_DIR })),
+    ...(media || []).map((e) => ({ ...e, dir: MEDIA_DIR })),
+  ];
 }
 
 // Fetch the bundled manifest, or null when there is none.
@@ -1421,16 +1452,64 @@ async function fetchManifest() {
   return null;
 }
 
-// Load just the firmware ROMs (no media) so a user image can boot on a fresh
-// runtime that skipped autoBoot (for example after "Exit to library").
-async function loadBundledBios() {
+// Load just the firmware ROMs (no media) for a machine so a user image can
+// boot on a fresh runtime that skipped autoBoot (for example after "Exit to
+// library"). PC-98 needs none (built-in BIOS I/O emulation), so it is skipped.
+async function loadBundledBios(machine) {
   const manifest = await fetchManifest();
-  if (!manifest || !Array.isArray(manifest.bios) || !manifest.bios.length) return;
+  const demo = resolveDemo(manifest, machine, false);
+  if (!demo || !demo.bios.length) return;
   loaderSet(4, "Loading firmware…");
-  for (const e of manifest.bios) {
-    await fetchToFS(`${ASSET_BASE}/${e.url}`, BIOS_DIR, e.name);
+  await loadAssetEntries(demo.bios.map((e) => ({ ...e, dir: BIOS_DIR })), null);
+  log(`loaded ${demo.bios.length} firmware file(s)`);
+}
+
+// Resolve the asset set to boot for a machine. A manifest may ship a list of
+// named "demos" (each with its own firmware + disc) or a single default title.
+// Returns { machine, bios, media, mediaName, title } or null when nothing is
+// bootable. With `fallback` false only an exact machine match is accepted (used
+// when fetching firmware for a user image of a known machine).
+function resolveDemo(manifest, machine, fallback = true) {
+  if (!manifest) return null;
+  const want = machine || "";
+
+  if (Array.isArray(manifest.demos) && manifest.demos.length) {
+    let d = want
+      ? manifest.demos.find((x) => (x.machine || "fmtowns") === want)
+      : null;
+    if (!d && fallback) d = manifest.demos[0];
+    if (!d) return null;
+    const mediaName = mediaNameOf(d);
+    return {
+      machine: d.machine || "fmtowns",
+      bios: Array.isArray(d.bios) ? d.bios : [],
+      media: Array.isArray(d.media) ? d.media : [],
+      mediaName,
+      title: d.title || prettyTitle(mediaName || "Bundled game"),
+    };
   }
-  log(`loaded ${manifest.bios.length} BIOS file(s)`);
+
+  // Single-title manifest: only the one machine is available.
+  const machineName = manifest.machine || "fmtowns";
+  if (want && want !== machineName && !fallback) return null;
+  const mediaName = mediaNameOf(manifest);
+  return {
+    machine: machineName,
+    bios: Array.isArray(manifest.bios) ? manifest.bios : [],
+    media: Array.isArray(manifest.media) ? manifest.media : [],
+    mediaName,
+    title: manifest.title || prettyTitle(mediaName || "Bundled game"),
+  };
+}
+
+// The name of the boot media inside a manifest entry: an explicit "cue" string,
+// or the first file in the "media" list.
+function mediaNameOf(o) {
+  if (!o) return "";
+  if (typeof o.cue === "string" && o.cue) return o.cue;
+  if (Array.isArray(o.media) && o.media.length) return o.media[0].name || "";
+  if (typeof o.media === "string") return o.media;
+  return "";
 }
 
 async function autoBoot(opts) {
@@ -1444,10 +1523,13 @@ async function autoBoot(opts) {
     const pending = await takePendingGame();
 
     const manifest = await fetchManifest();
-    const haveAssets = manifest && Array.isArray(manifest.bios) &&
-      Array.isArray(manifest.media) && (manifest.bios.length || manifest.media.length);
+    // Which machine? An explicit option (a library demo) or the parked record
+    // wins, then ?machine=, then the manifest default.
+    const wanted = opts.machine || (pending && pending.machine) ||
+                   new URLSearchParams(location.search).get("machine") || "";
+    const demo = resolveDemo(manifest, wanted);
 
-    if (!haveAssets && !pending) {
+    if (!demo && !pending) {
       // Nothing to boot: open the library instead of erroring, so the user can
       // import a game (or launch a demo).
       state.currentGame = "";
@@ -1460,10 +1542,10 @@ async function autoBoot(opts) {
     await loadModule();
     try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
 
-    // Bring in the bundled BIOS even when a game is parked: FM Towns needs its
-    // firmware, and the virtual FS does not survive the reload. PC-98 ignores
-    // it and uses its built-in BIOS I/O emulation.
-    if (haveAssets) await loadManifestAssets(manifest);
+    // Bring in the demo's own firmware and disc even when a game is parked: FM
+    // Towns and X68000 need their firmware, and the virtual FS does not survive
+    // the reload. PC-98 ignores it (built-in BIOS I/O emulation).
+    if (demo) await loadAssetEntries(tagAssetDirs(demo.bios, demo.media), manifest);
 
     if (pending && pending.bytes) {
       // A user image parked by a machine switch: mount it and boot.
@@ -1476,30 +1558,20 @@ async function autoBoot(opts) {
       return true;
     }
 
-    if (!haveAssets) {
+    if (!demo) {
       state.currentGame = "";
       loaderDone();
       showLibrary();
       return false;
     }
 
-    // Either a fresh page load, or a bundled demo parked by playGame() (which
-    // only records the machine/title). The media entry is optional: PC-98 boots
-    // from its built-in BIOS I/O emulation with no disc at all, whereas FM
-    // Towns needs a disc. The manifest names the disc with "cue" (a CUE/BIN or
-    // ISO set) or "media".
-    const mediaName = manifest.cue || manifest.media;
-    const mediaPath = mediaName ? `${MEDIA_DIR}/${mediaName}` : "";
-    // The machine comes from an explicit option (a library demo) or the parked
-    // demo record, then ?machine= (so a PC-98 set can be booted without editing
-    // the manifest), then the manifest's "machine" field; FM Towns is the
-    // default so existing deployments keep working.
-    const wanted = opts.machine || (pending && pending.machine) ||
-                   new URLSearchParams(location.search).get("machine") ||
-                   manifest.machine || "fmtowns";
-    state.currentGame = opts.title || (pending && pending.title) ||
-                        prettyTitle(mediaName || "Bundled game");
-    bootEngine(wanted, mediaPath);
+    // A fresh page load, or a bundled demo parked by playGame() (which only
+    // records the machine/title). The disc is optional: PC-98 boots from its
+    // built-in BIOS I/O emulation with no disc, whereas FM Towns and X68000
+    // need one.
+    const mediaPath = demo.mediaName ? `${MEDIA_DIR}/${demo.mediaName}` : "";
+    state.currentGame = opts.title || (pending && pending.title) || demo.title;
+    bootEngine(demo.machine, mediaPath);
     return true;
   } catch (e) {
     bootFail(e && e.message ? e.message : String(e));
@@ -1669,7 +1741,7 @@ async function loadRomFile(file, title) {
   // skipped autoBoot (e.g. it opened straight into the library). PC-98 ignores
   // them and uses its built-in BIOS I/O emulation.
   if (machine !== "pc98") {
-    try { await loadBundledBios(); } catch (e) { log("firmware load: " + (e.message || e), "err"); }
+    try { await loadBundledBios(machine); } catch (e) { log("firmware load: " + (e.message || e), "err"); }
   }
 
   // Mount into /media under the file's own name; the engine takes the path.
@@ -2423,13 +2495,34 @@ function buzz(ms) {
 // same object store, so a "Play" boots straight from storage without the user
 // re-picking a file.
 // ---------------------------------------------------------------------------
-// The bundled demo (when the deployment ships one) leads the grid. It is
-// derived from assets/manifest.json so the card always matches what is really
-// deployed, and it is the only demo shown (no cards for games that would fail
-// to boot).
+// The bundled demos (when the deployment ships them) lead the grid. They are
+// derived from assets/manifest.json so a card always matches what is really
+// deployed. A manifest may ship a single default title (bios + cue/media) or a
+// list of named "demos", each with its own firmware and disc, so the library
+// can offer more than one machine.
 async function demoGames() {
   const m = await fetchManifest();
-  if (!m || !Array.isArray(m.bios) || !m.bios.length) return [];
+  if (!m) return [];
+
+  // Multi-demo manifest: one card per entry, each booting its own asset set.
+  if (Array.isArray(m.demos) && m.demos.length) {
+    return m.demos.map((d, i) => {
+      const media = d.cue || d.media;
+      if (!media) return null;
+      return {
+        id: "demo-" + (d.id || i),
+        name: d.title || prettyTitle(media),
+        machine: d.machine || "fmtowns",
+        demo: true,
+        featured: !!d.featured,
+        glyph: d.glyph || gameGlyph(d.machine || "fmtowns"),
+        bundled: true,
+      };
+    }).filter(Boolean);
+  }
+
+  // Single-title manifest: the default bundled image.
+  if (!Array.isArray(m.bios) || !m.bios.length) return [];
   const media = m.cue || m.media;
   if (!media) return [];
   return [{
@@ -2439,6 +2532,7 @@ async function demoGames() {
     demo: true,
     featured: true,
     glyph: "🐤",
+    bundled: true,
   }];
 }
 
