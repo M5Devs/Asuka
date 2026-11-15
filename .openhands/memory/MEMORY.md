@@ -28,23 +28,24 @@ durable, cross-task subset.
 ## Environment / build gotchas
 - Container reset wipes `/tmp` (incl. `/tmp/emsdk`) and uninstalls `cmake`;
   reinstall with `sudo apt-get install -y cmake` + emsdk `install/activate latest`.
-- **emsdk build**: must `export EMSDK_PYTHON=/usr/bin/python3` (twice: before
-  and after `emsdk_env.sh`) — the default `python3` shim segfaults on ctypes.
+- **emsdk build**: `export EMSDK_PYTHON=/usr/bin/python3` (twice: before and
+  after `emsdk_env.sh`); the default `python3` shim segfaults on ctypes.
 - Web build: `scripts/build_web.sh` → `web/dist/`. `ASUKA_BUILD_WEB` auto-ON
   under `EMSCRIPTEN`; native runners/plugins skipped. **No dlopen on WASM**:
   `plugins/fmtowns` splits into `asuka_fmtowns_core` (STATIC) +
   `asuka_fmtowns` (SHARED native) + `asuka_fmtowns_static` (STATIC web).
 - `-sUSE_SDL=2` must be a **COMPILE** option too (else `fakesdl/SDL.h` `#error`).
   `-lidbfs.js` is required or `Module.IDBFS` is undefined;
-  `-sEXPORTED_RUNTIME_METHODS` must include `FS,IDBFS,callMain,ccall,cwrap,
+  `-sEXPORTED_RUNTIME_METHODS` needs `FS,IDBFS,callMain,ccall,cwrap,
   UTF8ToString,HEAPU8`. Threads need COOP/COEP (`scripts/serve_web.py`,
-  `web/_headers`; GitHub Pages uses `coi-serviceworker.min.js` instead).
+  `web/_headers`; GitHub Pages uses `coi-serviceworker.min.js`).
 - **Build is deterministic** — a clean rebuild reproduces byte-identical
   `asuka_web.wasm`/`.js`, so a rebuild is a valid deployed-binary check.
-- Native tests: `ctest` **5/5** (`asuka_smoke`, `asuka_audio_capture`,
-  `asuka_fmtowns_loads` WILL_FAIL, `asuka_snapshot`, `asuka_pc98`). Clean
-  rebuild 0 warnings (`-Wall -Wextra -Wpedantic -Wconversion …`). Test assets
-  are copyrighted → git-ignored `test_assets/` (`scripts/fetch_test_assets.sh`).
+- Native tests: `ctest` **6/6** (`asuka_smoke`, `asuka_audio_capture`,
+  `asuka_fmtowns_loads` WILL_FAIL, `asuka_snapshot`, `asuka_pc98`,
+  `asuka_x68k`). Clean rebuild 0 warnings (`-Wall -Wextra -Wpedantic
+  -Wconversion …`). Test assets are copyrighted → git-ignored `test_assets/`
+  (`scripts/fetch_test_assets.sh`).
 - **Vendor must stay pristine** (`plugins/*/vendor/`): revert any debug
   instrumentation (`git status` clean; `grep -rc DBG`).
 
@@ -82,58 +83,50 @@ durable, cross-task subset.
 ### X68000 (PX68k, `plugins/x68k`) — third core
 - Wraps **PX68k** (submodule `plugins/x68k/vendor/PX68k`,
   `libretro/px68k-libretro`) via Libretro, like the PC-98 adapter. 768×512
-  RGB565→XRGB8888.
+  RGB565→XRGB8888. Register vendor as a **submodule** (gitlink mode `160000`),
+  matching PC-98/FM Towns — not a nested clone.
 - **315 strong symbols collide** with NP2kai (both vendor Libretro +
   libretro-common + fmgen). wasm-ld can't scope per-symbol; llvm-objcopy can't
   rename wasm symbols. Fix = compile-time prefix shim
   `plugins/x68k/x68k_symbol_prefix.h` (renames 178 C + 137 C++ names to
   `px68k_*`), force-included via **one** wrapper `x68k_force_include.h`
-  (two `-include` flags break CMake with "cannot specify '-o' with '-c'").
+  (two `-include` flags break CMake: "cannot specify '-o' with '-c'").
 - **Keys are Libretro RetroKey codes** (RETURN=13, ESCAPE=27, arrows
   273/274/276/275, F1..F5 282..286, letters ASCII) — *not* PC-98 codes.
   PX68k polls `RETRO_DEVICE_KEYBOARD`; `send_scancode()` stores them in
-  `g_held_keys_kbd[]`.
-- Test skips when `test_assets/x68k_bios` (IPL ROMs) is absent; `ctest` = 6/6.
+  `g_held_keys_kbd[]`. Test skips without `test_assets/x68k_bios`.
 
 ## Web shell (`web/index.html`) — current state
 - PPSSPP-style shell: **games library** launcher, **pause drawer**, **settings
-  modal**, floating **📁 ROM** picker + universal drag & drop, gamepad ⇄ PC-98
-  virtual-keyboard toggle, 3-slot snapshot carousel.
-- **Cores power on once per process** (NP2kai's `retro_run` gates a one-shot
-  bootstrap on `static firstcall`; a 2nd in-process init runs a torn-down
-  machine → WASM traps). **Never swap engines in place.** Any second boot (new
-  game or machine switch) parks the image in IndexedDB (`asuka-game`/kv) and
+  modal**, floating **📁 ROM** picker + universal drag & drop, gamepad ⇄ soft
+  keyboard toggle (PC-98 + X68000), 3-slot snapshot carousel with
+  DEL/EXP/IMP. Title "Asuka — FM Towns / PC-98 / X68000".
+- **Cores power on once per process** (a 2nd in-process init runs a torn-down
+  machine → WASM traps; probed: FM→FM ok, 2nd PC-98 fails, FM-after-PC98 traps
+  `null function`). **Never swap engines in place.** Any second boot (new game
+  or machine switch) parks the image in IndexedDB (`asuka-game`/kv) and
   `location.reload()`s; boot reads it via `takePendingGame()`. Gate on
-  `state.engineSpent`, not `state.running`.
-- Library records keep the **original filename** (`file`) as well as the display
-  `name` — `machineForName()` keys off the extension and the pretty title has
-  none. IDB db `asuka-game` v2 adds the `games` store (`kv` = parked record).
+  `state.engineSpent`, not `state.running`. "Exit to library" is *in-place*
+  (`asuka_web_stop`+`shutdown`, `showLibrary()`), no reload.
 - **Home = the library, not a boot.** `DOMContentLoaded` boots only when
   `?boot=` / `?machine=` is present **or** a game is parked (`hasPendingGame()`
-  = non-destructive `idbGet("pending")` peek). Otherwise `loaderDone();
-  showLibrary()`. `showLibrary/hideLibrary` toggle `body.library-mode`, which
-  hides `#stage/#pad/#kbd/#tools`; `loaderShow()` re-arms the loader for an
-  in-place boot after the library. Bundled demo = one manifest-driven
-  `featured` card (`demoGames()`), not a hard-coded list.
-- **"Exit to library" is in-place** (`asuka_web_stop` + `asuka_web_shutdown`,
-  hide chrome, `showLibrary()`) — no reload. But a core still cannot be
-  re-inited in process (probed: FM→FM ok; 2nd PC-98 fails; FM-after-PC98 traps
-  `null function`), so `state.engineSpent` stays set and the *next* boot still
-  parks+reloads. `loadRomFile` fetches the bundled BIOS itself
-  (`loadBundledBios()`) when it boots from the library.
+  = non-destructive `idbGet("pending")` peek); else `loaderDone();
+  showLibrary()`. `body.library-mode` hides `#stage/#pad/#kbd/#tools`;
+  `loaderShow()` re-arms the loader for an in-place boot. Library records keep
+  the **original filename** (`file`) — `machineForName()` keys off the
+  extension. Bundled demo = one manifest-driven `featured` card.
+- `machineForName` extensions: PC-98 (`.hdi/.d88/.fdi/.nhd/.thd`), X68000
+  (`.dim/.xdf/.hds/.hdf/.m3u`), FM Towns (`.chd/.iso/.cue`) + `.zip`.
+  `state.x68k` opens the keyboard surface. Snapshot EXP downloads the `.state`,
+  IMP writes one back.
 - C API (`src/web/main_web.cpp`): `asuka_web_load_rom(bios_dir, machine,
   media_path)` (3-arg; `bios_dir` sets `g_state.bios_dir` for the cold-start
-  ROM-picker/drag-drop path), `asuka_web_key`, `asuka_web_scancode`,
+  ROM-picker/drag-drop path — was a bug), `asuka_web_key`, `asuka_web_scancode`,
   `asuka_web_is_pc98`, `asuka_web_is_x68k`, `asuka_web_machine`,
-  `asuka_web_input_events` (counts input calls — the headless input proof),
-  `asuka_web_set_paused`/`is_paused`, `asuka_web_set_volume`/`get_volume` (gain
-  applied when queueing PCM — `SDL_QueueAudio` has no device volume),
-  `asuka_web_swap_media` (re-calls `engine->load_media()`), snapshot APIs
-  (`save/load/delete_snapshot`, `has_snapshot`, `snapshot_thumbnail[_size]`).
-- `machineForName` extension table spans PC-98 (`.hdi/.d88/.fdi/.nhd/.thd`),
-  X68000 (`.dim/.xdf/.hds/.hdf/.m3u`) and FM Towns (`.chd/.iso/.cue`) + `.zip`.
-  `state.x68k` drives the keyboard surface. Snapshot slots expose
-  DEL/EXP/IMP (export downloads the `.state`, import writes one back).
+  `asuka_web_input_events` (headless input proof), `set_paused`/`is_paused`,
+  `set_volume`/`get_volume` (gain at PCM queue time — `SDL_QueueAudio` has no
+  device volume), `swap_media`, snapshot APIs (`save/load/delete_snapshot`,
+  `has_snapshot`, `snapshot_thumbnail[_size]`).
 - `asuka_web_init(bios_dir, media_path, machine)` (3rd arg default `"fmtowns"`).
   Machine from `?machine=` → `manifest.machine` → `"fmtowns"`.
 - **Snapshot thumbnail = sidecar `.bmp`** (bottom-up 24-bit) written *after*
@@ -146,8 +139,10 @@ durable, cross-task subset.
   `preserveDrawingBuffer`, so `drawImage`/`getImageData` read blank — use a
   compositor screenshot. A hidden drawer uses `translateX`, so a "visible"
   check must reject off-screen rects, not just `display:none`. The deploy
-  copy's coi-serviceworker reloads once (wait for `crossOriginIsolated` before
-  uploading files).
+  copy's coi-serviceworker reloads once (wait for `crossOriginIsolated`).
+- Headless test harness: puppeteer-core 23 at `/tmp/smoketest` +
+  `/usr/bin/chromium` (Playwright's `/opt/google/chrome/chrome` is absent);
+  serve via `scripts/serve_web.py <dir>` (COOP/COEP) on :8000.
 
 ## Deploy repo (`m5dev-tests/asukatest`)
 - Static site = `web/dist` **plus** universal-host extras. Copy
