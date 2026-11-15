@@ -156,3 +156,24 @@ durable, cross-task subset.
   split (GitHub 100 MB limit): per-track BINs + a multi-`FILE` CUE preserving
   PREGAP so the TOC matches. `_headers` caches `/assets/*` 1 yr.
 - Caveat: the repo is **public** and hosts copyrighted BIOS + After Burner.
+
+## Multi-demo manifest + on-device devtools — Task 9 (Asuka `78da2fc`)
+- `assets/manifest.json` may now list `"demos": [{id,title,machine,glyph,
+  featured,bios[],media[],cue}]` instead of the single-title shape. The library
+  shows one card per demo (both machines at once); the shell resolves the boot
+  asset set per machine via `resolveDemo()` (falls back to the single-title
+  shape, so old deployments keep working). `loadAssetEntries()`+`tagAssetDirs()`
+  replaced `loadManifestAssets()`. **X68000 firmware = just `iplrom.dat` +
+  `cgrom.dat`** (917 KB); PX68k opens them by exactly those names, so they must
+  be mounted lowercase in the bios dir.
+- Eruda devtools injected in `web/index.html` `<head>` from jsdelivr (guarded:
+  `if (window.eruda)`). jsdelivr sends `cross-origin-resource-policy:
+  cross-origin`, so it loads fine under COEP. Entry button is inside a **shadow
+  root** — reach it via `#eruda.shadowRoot.querySelector('.eruda-entry-btn')`.
+  Default position is bottom-right (collides with the gamepad), so we
+  `eruda.position({x,y})` it up the right edge.
+- Machine switch still needs a reload (vendored cores power on once); verified
+  x68k→pc98 by dropping a `.d88` onto a running X68000 (parks + reloads).
+- Test harness scripts in `/tmp/smoketest`: `library.mjs` (cards+eruda+x68k card
+  boot), `dropdim.mjs`/`dropzip.mjs` (drag-drop real `.dim` and `.zip`),
+  `fmtowns.mjs` (FM Towns regression), `switch.mjs`, `live.mjs` (live Pages).
