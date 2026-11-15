@@ -24,6 +24,9 @@
 #if defined(ASUKA_WEB_HAS_PC98)
 #include "pc98_plugin.hpp"
 #endif
+#if defined(ASUKA_WEB_HAS_X68K)
+#include "x68k_plugin.hpp"
+#endif
 
 #include <SDL.h>
 #include <emscripten.h>
@@ -332,12 +335,24 @@ bool is_pc98(const std::string& name) {
            name == "np2" || name == "np2kai";
 }
 
-// Allocate the engine the shell asked for. The PC-98 core is only compiled in
-// when the NP2kai submodule is present.
+// The Sharp X68000 engine (PX68k). Accepts the aliases a link or manifest might
+// reasonably use.
+bool is_x68k(const std::string& name) {
+    return name == "x68k" || name == "x68000" || name == "px68k" ||
+           name == "sharp-x68000";
+}
+
+// Allocate the engine the shell asked for. The PC-98 and X68000 cores are only
+// compiled in when their submodules are present.
 asuka::IEngineCore* create_selected_engine(const std::string& name) {
 #if defined(ASUKA_WEB_HAS_PC98)
     if (is_pc98(name)) {
         return create_pc98_engine();
+    }
+#endif
+#if defined(ASUKA_WEB_HAS_X68K)
+    if (is_x68k(name)) {
+        return create_x68k_engine();
     }
 #endif
     return create_engine();
@@ -347,6 +362,12 @@ void destroy_selected_engine(asuka::IEngineCore* engine, const std::string& name
 #if defined(ASUKA_WEB_HAS_PC98)
     if (is_pc98(name)) {
         destroy_pc98_engine(engine);
+        return;
+    }
+#endif
+#if defined(ASUKA_WEB_HAS_X68K)
+    if (is_x68k(name)) {
+        destroy_x68k_engine(engine);
         return;
     }
 #endif
@@ -489,13 +510,16 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_init(const char* bios_dir,
 // Swap in a game image at runtime. The shell calls this after mounting a
 // user-supplied file: it drops the current engine (whatever it was) and starts
 // a fresh one with the requested machine and media. The canvas, audio and
-// gamepad are kept, so the main loop never stops. Returns 1 on success, 0 on
-// failure (see asuka_web_last_error()).
+// gamepad are kept, so the main loop never stops. `bios_dir` is where the
+// machine's firmware lives (the cores that need it resolve ROMs relative to
+// this directory). Returns 1 on success, 0 on failure (see
+// asuka_web_last_error()).
 //
 // Note: the vendored cores power on only once per process, so the shell only
 // uses this for a cold start (no engine yet). A machine change while running is
 // handled by reloading the page into a fresh runtime.
-EMSCRIPTEN_KEEPALIVE int asuka_web_load_rom(const char* machine,
+EMSCRIPTEN_KEEPALIVE int asuka_web_load_rom(const char* bios_dir,
+                                            const char* machine,
                                             const char* media_path) {
     if (!ensure_platform()) {
         return 0;
@@ -503,6 +527,7 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_load_rom(const char* machine,
 
     stop_engine();
 
+    g_state.bios_dir = bios_dir != nullptr ? bios_dir : "";
     g_state.machine = machine != nullptr ? machine : "";
     const std::string media = media_path != nullptr ? media_path : "";
 
@@ -612,10 +637,20 @@ EMSCRIPTEN_KEEPALIVE void asuka_web_scancode(int scancode, int pressed) {
     g_state.input_events++;
 }
 
-// Which engine is running ("fmtowns" or "pc98"); lets the shell pick the right
-// on-screen controls.
+// Which engine is running ("fmtowns", "pc98" or "x68k"); lets the shell pick
+// the right on-screen controls.
 EMSCRIPTEN_KEEPALIVE int asuka_web_is_pc98() {
     return is_pc98(g_state.machine) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int asuka_web_is_x68k() {
+    return is_x68k(g_state.machine) ? 1 : 0;
+}
+
+// Which machine name is currently loaded ("" when none); the shell uses it to
+// label the pause drawer and pick controls.
+EMSCRIPTEN_KEEPALIVE const char* asuka_web_machine() {
+    return g_state.machine.c_str();
 }
 
 // Number of key events accepted since init (diagnostics / test hook).
@@ -701,6 +736,19 @@ EMSCRIPTEN_KEEPALIVE int asuka_web_has_snapshot(int slot) {
     }
     std::fclose(file);
     return 1;
+}
+
+// Delete slot N's state and thumbnail. Returns 1 when a state was removed, 0
+// when the slot was empty or the slot number is invalid. The shell must call
+// FS.syncfs() afterwards to persist the deletion to IndexedDB.
+EMSCRIPTEN_KEEPALIVE int asuka_web_delete_snapshot(int slot) {
+    if (slot < 1) {
+        return 0;
+    }
+    const std::string state = snapshot_state_path(slot);
+    const std::string thumb = snapshot_thumb_path(slot);
+    std::remove(thumb.c_str());  // a missing thumbnail is fine
+    return std::remove(state.c_str()) == 0 ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int asuka_web_running() {

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 #
-# Fetch the FM Towns test assets needed by scripts/verify_fmtowns_boot.sh.
+# Fetch the FM Towns and X68000 test assets needed by the boot/snapshot tests.
 #
-#   * BIOS ROM set, from Abdess/retrobios (bios/Fujitsu/FM Towns).
+#   * FM Towns BIOS ROM set, from Abdess/retrobios (bios/Fujitsu/FM Towns).
 #   * After Burner (1987, Sega) disc image, from the Internet Archive
 #     fmtownscdcollection item (CUE + BIN inside a ZIP).
+#   * X68000 IPL/character ROMs, from Abdess/retrobios (bios/Sharp/X68000);
+#     used by tests/x68k_test.sh.
 #
-# Everything lands in the git-ignored test_assets/ tree. Both the ROMs and the
-# disc are copyrighted; this is a local convenience for testing only.
+# Everything lands in the git-ignored test_assets/ tree. The ROMs and the disc
+# are copyrighted; this is a local convenience for testing only.
 #
 # Usage: scripts/fetch_test_assets.sh
 
@@ -18,10 +20,11 @@ cd "$root"
 
 bios_dir="test_assets/bios"
 media_dir="test_assets/media"
+x68k_bios_dir="test_assets/x68k_bios"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-mkdir -p "$bios_dir" "$media_dir"
+mkdir -p "$bios_dir" "$media_dir" "$x68k_bios_dir"
 
 echo "== Fetching FM Towns BIOS (retrobios) =="
 git clone --depth 1 --filter=blob:none --sparse \
@@ -29,6 +32,12 @@ git clone --depth 1 --filter=blob:none --sparse \
 git -C "$work/retrobios" sparse-checkout set --no-cone '/bios/Fujitsu/FM Towns/*'
 cp "$work/retrobios/bios/Fujitsu/FM Towns/"*.ROM "$bios_dir/"
 echo "  copied $(find "$bios_dir" -name '*.ROM' | wc -l) ROM files"
+
+echo "== Fetching X68000 BIOS (retrobios) =="
+git -C "$work/retrobios" sparse-checkout set --no-cone \
+    '/bios/Fujitsu/FM Towns/*' '/bios/Sharp/X68000/*'
+cp "$work/retrobios/bios/Sharp/X68000/"*.dat "$x68k_bios_dir/"
+echo "  copied $(find "$x68k_bios_dir" -name '*.dat' | wc -l) ROM files"
 
 echo "== Fetching After Burner disc (archive.org) =="
 zip_url="https://archive.org/download/fmtownscdcollection/FM-Towns%20CD/Afterburner%20%281987%29%28Sega%29%28Jp-En%29.zip"

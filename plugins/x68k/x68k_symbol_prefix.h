@@ -1,0 +1,203 @@
+#pragma once
+
+// Symbol-isolation shim for the Sharp X68000 (PX68k) core.
+//
+// PX68k and NP2kai (the PC-98 core) are both Libretro cores, and each vendors
+// its own copy of the Libretro API, libretro-common and fmgen. The web build
+// links both cores into a single WASM module, where those copies would collide
+// on hundreds of strong symbols (retro_*, filestream_*, path_*, string_*, the
+// FM::/PSG audio classes, ...). wasm-ld has no per-symbol scoping and
+// llvm-objcopy cannot rewrite wasm symbols, so the X68000 core's colliding
+// names are renamed here with a px68k_ prefix at compile time. This header is
+// force-included into every asuka_x68k_core translation unit (see
+// plugins/x68k/CMakeLists.txt), so a definition and its uses are renamed
+// together and the core stays internally consistent.
+//
+// The names below are exactly the strong globals that both cores define
+// (verified with llvm-nm over the two archives); the X68000-specific symbols
+// the Asuka glue needs (create_x68k_engine, X68kEngine, retro_system_conf,
+// ...) are deliberately left untouched.
+
+// --- C++ audio namespaces (fmgen) ---
+#define FM px68k_FM
+#define PSG px68k_PSG
+
+// --- colliding C globals (Libretro API, libretro-common, fmgen C API) ---
+#define OPM_Init px68k_OPM_Init
+#define OPM_Reset px68k_OPM_Reset
+#define OPM_SetVolume px68k_OPM_SetVolume
+#define audio_batch_cb px68k_audio_batch_cb
+#define cpu_features_get px68k_cpu_features_get
+#define cpu_features_get_core_amount px68k_cpu_features_get_core_amount
+#define cpu_features_get_model_name px68k_cpu_features_get_model_name
+#define cpu_features_get_perf_counter px68k_cpu_features_get_perf_counter
+#define cpu_features_get_time_usec px68k_cpu_features_get_time_usec
+#define dirent_vfs_init px68k_dirent_vfs_init
+#define encoding_crc32 px68k_encoding_crc32
+#define file_close px68k_file_close
+#define file_create px68k_file_create
+#define file_create_c px68k_file_create_c
+#define file_open px68k_file_open
+#define file_open_c px68k_file_open_c
+#define file_read px68k_file_read
+#define file_seek px68k_file_seek
+#define file_setcd px68k_file_setcd
+#define file_write px68k_file_write
+#define filestream_close px68k_filestream_close
+#define filestream_delete px68k_filestream_delete
+#define filestream_eof px68k_filestream_eof
+#define filestream_error px68k_filestream_error
+#define filestream_exists px68k_filestream_exists
+#define filestream_flush px68k_filestream_flush
+#define filestream_get_path px68k_filestream_get_path
+#define filestream_get_size px68k_filestream_get_size
+#define filestream_get_vfs_handle px68k_filestream_get_vfs_handle
+#define filestream_getc px68k_filestream_getc
+#define filestream_getline px68k_filestream_getline
+#define filestream_gets px68k_filestream_gets
+#define filestream_open px68k_filestream_open
+#define filestream_printf px68k_filestream_printf
+#define filestream_putc px68k_filestream_putc
+#define filestream_read px68k_filestream_read
+#define filestream_read_file px68k_filestream_read_file
+#define filestream_rename px68k_filestream_rename
+#define filestream_rewind px68k_filestream_rewind
+#define filestream_scanf px68k_filestream_scanf
+#define filestream_seek px68k_filestream_seek
+#define filestream_tell px68k_filestream_tell
+#define filestream_truncate px68k_filestream_truncate
+#define filestream_vfs_init px68k_filestream_vfs_init
+#define filestream_vprintf px68k_filestream_vprintf
+#define filestream_write px68k_filestream_write
+#define filestream_write_file px68k_filestream_write_file
+#define fill_dated_filename px68k_fill_dated_filename
+#define fill_pathname px68k_fill_pathname
+#define fill_pathname_abbreviate_special px68k_fill_pathname_abbreviate_special
+#define fill_pathname_base px68k_fill_pathname_base
+#define fill_pathname_basedir px68k_fill_pathname_basedir
+#define fill_pathname_dir px68k_fill_pathname_dir
+#define fill_pathname_expand_special px68k_fill_pathname_expand_special
+#define fill_pathname_join px68k_fill_pathname_join
+#define fill_pathname_join_delim px68k_fill_pathname_join_delim
+#define fill_pathname_join_special_ext px68k_fill_pathname_join_special_ext
+#define fill_pathname_parent_dir px68k_fill_pathname_parent_dir
+#define fill_pathname_parent_dir_name px68k_fill_pathname_parent_dir_name
+#define fill_pathname_resolve_relative px68k_fill_pathname_resolve_relative
+#define fill_pathname_slash px68k_fill_pathname_slash
+#define fill_str_dated_filename px68k_fill_str_dated_filename
+#define find_last_slash px68k_find_last_slash
+#define is_path_accessible_using_standard_io px68k_is_path_accessible_using_standard_io
+#define local_to_utf8_string_alloc px68k_local_to_utf8_string_alloc
+#define log_cb px68k_log_cb
+#define option_defs_us px68k_option_defs_us
+#define path_basedir px68k_path_basedir
+#define path_basedir_wrapper px68k_path_basedir_wrapper
+#define path_basename px68k_path_basename
+#define path_get_archive_delim px68k_path_get_archive_delim
+#define path_get_extension px68k_path_get_extension
+#define path_get_size px68k_path_get_size
+#define path_is_absolute px68k_path_is_absolute
+#define path_is_character_special px68k_path_is_character_special
+#define path_is_compressed_file px68k_path_is_compressed_file
+#define path_is_directory px68k_path_is_directory
+#define path_is_valid px68k_path_is_valid
+#define path_mkdir px68k_path_mkdir
+#define path_parent_dir px68k_path_parent_dir
+#define path_relative_to px68k_path_relative_to
+#define path_remove_extension px68k_path_remove_extension
+#define path_resolve_realpath px68k_path_resolve_realpath
+#define path_stat px68k_path_stat
+#define path_vfs_init px68k_path_vfs_init
+#define retro_api_version px68k_retro_api_version
+#define retro_cheat_reset px68k_retro_cheat_reset
+#define retro_cheat_set px68k_retro_cheat_set
+#define retro_closedir px68k_retro_closedir
+#define retro_deinit px68k_retro_deinit
+#define retro_dirent_error px68k_retro_dirent_error
+#define retro_dirent_get_name px68k_retro_dirent_get_name
+#define retro_dirent_is_dir px68k_retro_dirent_is_dir
+#define retro_get_memory_data px68k_retro_get_memory_data
+#define retro_get_memory_size px68k_retro_get_memory_size
+#define retro_get_region px68k_retro_get_region
+#define retro_get_system_av_info px68k_retro_get_system_av_info
+#define retro_get_system_info px68k_retro_get_system_info
+#define retro_init px68k_retro_init
+#define retro_load_game px68k_retro_load_game
+#define retro_load_game_special px68k_retro_load_game_special
+#define retro_opendir px68k_retro_opendir
+#define retro_opendir_include_hidden px68k_retro_opendir_include_hidden
+#define retro_readdir px68k_retro_readdir
+#define retro_reset px68k_retro_reset
+#define retro_run px68k_retro_run
+#define retro_serialize px68k_retro_serialize
+#define retro_serialize_size px68k_retro_serialize_size
+#define retro_set_audio_sample px68k_retro_set_audio_sample
+#define retro_set_audio_sample_batch px68k_retro_set_audio_sample_batch
+#define retro_set_controller_port_device px68k_retro_set_controller_port_device
+#define retro_set_environment px68k_retro_set_environment
+#define retro_set_input_poll px68k_retro_set_input_poll
+#define retro_set_input_state px68k_retro_set_input_state
+#define retro_set_video_refresh px68k_retro_set_video_refresh
+#define retro_unload_game px68k_retro_unload_game
+#define retro_unserialize px68k_retro_unserialize
+#define retro_vfs_closedir_impl px68k_retro_vfs_closedir_impl
+#define retro_vfs_dirent_get_name_impl px68k_retro_vfs_dirent_get_name_impl
+#define retro_vfs_dirent_is_dir_impl px68k_retro_vfs_dirent_is_dir_impl
+#define retro_vfs_file_close_impl px68k_retro_vfs_file_close_impl
+#define retro_vfs_file_error_impl px68k_retro_vfs_file_error_impl
+#define retro_vfs_file_flush_impl px68k_retro_vfs_file_flush_impl
+#define retro_vfs_file_get_path_impl px68k_retro_vfs_file_get_path_impl
+#define retro_vfs_file_open_impl px68k_retro_vfs_file_open_impl
+#define retro_vfs_file_read_impl px68k_retro_vfs_file_read_impl
+#define retro_vfs_file_remove_impl px68k_retro_vfs_file_remove_impl
+#define retro_vfs_file_rename_impl px68k_retro_vfs_file_rename_impl
+#define retro_vfs_file_seek_impl px68k_retro_vfs_file_seek_impl
+#define retro_vfs_file_seek_internal px68k_retro_vfs_file_seek_internal
+#define retro_vfs_file_size_impl px68k_retro_vfs_file_size_impl
+#define retro_vfs_file_tell_impl px68k_retro_vfs_file_tell_impl
+#define retro_vfs_file_truncate_impl px68k_retro_vfs_file_truncate_impl
+#define retro_vfs_file_write_impl px68k_retro_vfs_file_write_impl
+#define retro_vfs_mkdir_impl px68k_retro_vfs_mkdir_impl
+#define retro_vfs_opendir_impl px68k_retro_vfs_opendir_impl
+#define retro_vfs_readdir_impl px68k_retro_vfs_readdir_impl
+#define retro_vfs_stat_impl px68k_retro_vfs_stat_impl
+#define rfclose px68k_rfclose
+#define rfeof px68k_rfeof
+#define rferror px68k_rferror
+#define rfflush px68k_rfflush
+#define rfgetc px68k_rfgetc
+#define rfgets px68k_rfgets
+#define rfopen px68k_rfopen
+#define rfprintf px68k_rfprintf
+#define rfputc px68k_rfputc
+#define rfread px68k_rfread
+#define rfscanf px68k_rfscanf
+#define rfseek px68k_rfseek
+#define rftell px68k_rftell
+#define rfwrite px68k_rfwrite
+#define strcasestr_retro__ px68k_strcasestr_retro__
+#define string_hex_to_unsigned px68k_string_hex_to_unsigned
+#define string_remove_all_chars px68k_string_remove_all_chars
+#define string_replace_all_chars px68k_string_replace_all_chars
+#define string_replace_substring px68k_string_replace_substring
+#define string_to_lower px68k_string_to_lower
+#define string_to_unsigned px68k_string_to_unsigned
+#define string_to_upper px68k_string_to_upper
+#define string_tokenize px68k_string_tokenize
+#define string_trim_whitespace px68k_string_trim_whitespace
+#define string_trim_whitespace_left px68k_string_trim_whitespace_left
+#define string_trim_whitespace_right px68k_string_trim_whitespace_right
+#define string_ucwords px68k_string_ucwords
+#define strlcat_retro__ px68k_strlcat_retro__
+#define strlcpy_retro__ px68k_strlcpy_retro__
+#define utf16_conv_utf8 px68k_utf16_conv_utf8
+#define utf16_to_char_string px68k_utf16_to_char_string
+#define utf16_to_utf8_string_alloc px68k_utf16_to_utf8_string_alloc
+#define utf8_conv_utf32 px68k_utf8_conv_utf32
+#define utf8_to_local_string_alloc px68k_utf8_to_local_string_alloc
+#define utf8_to_utf16_string_alloc px68k_utf8_to_utf16_string_alloc
+#define utf8_walk px68k_utf8_walk
+#define utf8cpy px68k_utf8cpy
+#define utf8len px68k_utf8len
+#define utf8skip px68k_utf8skip
+#define word_wrap px68k_word_wrap

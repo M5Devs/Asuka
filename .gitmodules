@@ -5,3 +5,6 @@
 	path = plugins/pc98/vendor/NP2kai
 	url = https://github.com/uraraworks/NP2kai-wasm
 	branch = wasm
+[submodule "plugins/x68k/vendor/PX68k"]
+	path = plugins/x68k/vendor/PX68k
+	url = https://github.com/libretro/px68k-libretro.git

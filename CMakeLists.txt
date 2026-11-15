@@ -174,6 +174,20 @@ if(ASUKA_BUILD_PC98)
     endif()
 endif()
 
+# Sharp X68000 engine (PX68k). Enabled only when the vendored core is present
+# so a plain checkout still configures; see plugins/x68k/CMakeLists. On the web
+# build this contributes the static engine instead of the shared plugin.
+option(ASUKA_BUILD_X68K "Build the Sharp X68000 (PX68k) engine" ON)
+if(ASUKA_BUILD_X68K)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/plugins/x68k/vendor/PX68k/libretro.c")
+        add_subdirectory(plugins/x68k)
+    else()
+        message(WARNING
+            "X68000 engine skipped: PX68k submodule not initialised. "
+            "Run: git submodule update --init --recursive")
+    endif()
+endif()
+
 # ---------------------------------------------------------------------------
 # Web target (Emscripten + SDL2).
 #
@@ -197,10 +211,16 @@ if(ASUKA_BUILD_WEB)
         target_compile_definitions(asuka_web PRIVATE ASUKA_WEB_HAS_PC98=1)
     endif()
 
+    if(TARGET asuka_x68k_static)
+        target_link_libraries(asuka_web PRIVATE asuka_x68k_static)
+        target_compile_definitions(asuka_web PRIVATE ASUKA_WEB_HAS_X68K=1)
+    endif()
+
     target_include_directories(asuka_web PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/plugins/fmtowns"
-        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pc98")
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/pc98"
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/x68k")
 
     # -sUSE_SDL=2 must be set at compile time too, so <SDL.h> resolves to the
     # Emscripten SDL2 port header (otherwise it hits the fakesdl stub).
@@ -302,5 +322,15 @@ if(NOT ASUKA_BUILD_WEB)
             COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/pc98_test.sh"
                     "$<TARGET_FILE:asuka_runner>"
                     "$<TARGET_FILE:asuka_pc98>")
+    endif()
+
+    # X68000 (PX68k): needs the IPL ROMs, so it skips when they are absent.
+    # Covers rendering, audio and the snapshot round-trip.
+    if(TARGET asuka_x68k)
+        add_test(NAME asuka_x68k
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/x68k_test.sh"
+                    "$<TARGET_FILE:asuka_runner>"
+                    "$<TARGET_FILE:asuka_x68k>"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/test_assets/x68k_bios")
     endif()
 endif()
