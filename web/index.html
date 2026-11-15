@@ -442,6 +442,13 @@
   }
   #library.show { display: flex; }
 
+  /* While the library is up, hide the player chrome underneath so the grid is
+     the only thing on screen (the canvas still exists for the next boot). */
+  body.library-mode #stage { visibility: hidden; }
+  body.library-mode #pad,
+  body.library-mode #kbd,
+  body.library-mode #tools { display: none !important; }
+
   #library .head {
     display: flex;
     align-items: center;
@@ -576,6 +583,14 @@
   }
   .card:hover .del, .card:focus-within .del { opacity: 1; }
   .card .del:hover { background: rgba(255, 93, 143, 0.6); }
+
+  /* The bundled demo leads the grid and, on wider screens, spans as a banner so
+     it reads as the obvious first tap. */
+  @media (min-width: 640px) {
+    .card.featured { grid-column: span 2; }
+    .card.featured .art { aspect-ratio: 16 / 7; font-size: 64px; }
+  }
+  .card.featured .badge { border-color: rgba(255, 93, 143, 0.6); color: #ffc4d8; }
 
   /* Import card: dashed outline, same footprint as a game card. */
   .card.import {
@@ -845,7 +860,6 @@
     <div class="bar"><i id="loader-bar"></i></div>
     <div class="pct" id="loader-pct">0%</div>
     <div class="status" id="loader-status">Preparing…</div>
-    <button class="retry" id="loader-retry" hidden>Retry</button>
   </div>
 
   <div id="snapbar" hidden>
@@ -1264,12 +1278,14 @@ function loaderDone() {
   l.classList.add("hidden");
   setTimeout(() => { l.style.display = "none"; }, 600);
 }
-function loaderFail(msg) {
-  log("boot failed: " + msg, "err");
-  loaderSet(100, msg, true);
-  el("loader-retry").hidden = false;
+// Re-arm the loader for a boot that starts after the library was shown.
+function loaderShow() {
+  const l = el("loader");
+  l.style.display = "flex";
+  // Force a reflow so removing .hidden animates the opacity back in.
+  void l.offsetWidth;
+  l.classList.remove("hidden");
 }
-
 // The service worker reloads the page once on a first (header-less) visit; wait
 // briefly for isolation so the threaded build can start on the reloaded page.
 function waitForIsolation(timeoutMs) {
@@ -1394,6 +1410,8 @@ async function loadBundledBios() {
 
 async function autoBoot(opts) {
   opts = opts || {};
+  hideLibrary();
+  loaderShow();
   loaderSet(2, "Booting…");
   state.booting = true;
   try {
@@ -1459,7 +1477,7 @@ async function autoBoot(opts) {
     bootEngine(wanted, mediaPath);
     return true;
   } catch (e) {
-    loaderFail(e && e.message ? e.message : String(e));
+    bootFail(e && e.message ? e.message : String(e));
     return false;
   } finally {
     state.booting = false;
@@ -1529,8 +1547,9 @@ function dropToast(msg) {
 function bootFail(msg) {
   log("boot failed: " + msg, "err");
   dropToast(msg);
-  // If nothing is running yet (a failed cold boot), keep the loader's Retry.
-  if (!state.running) loaderFail(msg);
+  // A cold boot from the library (Play / drop / import) failed: drop back to
+  // the grid rather than stranding the loader over a dead canvas.
+  if (!state.running) { loaderDone(); showLibrary(); }
 }
 
 // Unwrap a .zip (stored or deflated) and return its first supported entry.
@@ -1609,6 +1628,9 @@ async function loadRomFile(file, title) {
   }
 
   await waitForIsolation(6000);
+  hideLibrary();
+  loaderShow();
+  loaderSet(2, "Booting " + (state.currentGame || f.name) + "…");
   await loadModule();
   try { await mountSnapshotFS(); } catch (e) { log("snapshot FS init failed: " + e, "err"); }
   // FM Towns needs its firmware ROMs; fetch the bundled set when this runtime
@@ -1723,6 +1745,17 @@ async function idbPutIn(store, value, key) {
   });
   db.close();
 }
+async function idbGet(store, key) {
+  const db = await idbOpen();
+  const value = await new Promise((resolve, reject) => {
+    const tx = db.transaction(store, "readonly");
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return value;
+}
 async function idbGetAll(store) {
   const db = await idbOpen();
   const rows = await new Promise((resolve, reject) => {
@@ -1765,6 +1798,15 @@ async function takePendingGame() {
     if (rec && rec.machine) return rec;
   } catch (e) { /* IndexedDB unavailable: fall through */ }
   return null;
+}
+
+// Non-destructive peek: is a game parked for this runtime? Used at startup to
+// decide whether to boot straight away (a park+reload) or open the library.
+async function hasPendingGame() {
+  try {
+    const rec = await idbGet("pending");
+    return !!(rec && rec.machine);
+  } catch (e) { return false; }
 }
 
 // Open the ROM picker (shared by the floating button and the library tile).
@@ -2209,10 +2251,24 @@ function buzz(ms) {
 // same object store, so a "Play" boots straight from storage without the user
 // re-picking a file.
 // ---------------------------------------------------------------------------
-const DEMO_GAMES = [
-  { id: "demo-nzs", name: "The New Zealand Story", machine: "fmtowns", demo: true, glyph: "🐤" },
-  { id: "demo-afterburner", name: "After Burner", machine: "fmtowns", demo: true, glyph: "✈️" },
-];
+// The bundled demo (when the deployment ships one) leads the grid. It is
+// derived from assets/manifest.json so the card always matches what is really
+// deployed, and it is the only demo shown (no cards for games that would fail
+// to boot).
+async function demoGames() {
+  const m = await fetchManifest();
+  if (!m || !Array.isArray(m.bios) || !m.bios.length) return [];
+  const media = m.cue || m.media;
+  if (!media) return [];
+  return [{
+    id: "demo-bundled",
+    name: m.title || prettyTitle(media),
+    machine: m.machine || "fmtowns",
+    demo: true,
+    featured: true,
+    glyph: "🐤",
+  }];
+}
 
 function gameGlyph(machine) {
   return machine === "pc98" ? "💾" : "💿";
@@ -2251,7 +2307,8 @@ async function renderLibrary() {
 
   // Demo cards (playable only when a matching bundled image exists; otherwise
   // they are shown as a taste of what the library looks like).
-  for (const g of DEMO_GAMES) {
+  const demos = await demoGames();
+  for (const g of demos) {
     grid.appendChild(gameCard(g));
   }
 
@@ -2262,12 +2319,12 @@ async function renderLibrary() {
 
   el("library-count").textContent =
     (stored.length ? stored.length + " imported" : "no imports yet");
-  empty.hidden = stored.length > 0;
+  empty.hidden = stored.length > 0 || demos.length > 0;
 }
 
 function gameCard(g) {
   const card = document.createElement("div");
-  card.className = "card";
+  card.className = "card" + (g.featured ? " featured" : "");
   card.dataset.id = g.id;
   const sub = g.demo ? "Bundled demo" : "Imported";
   card.innerHTML =
@@ -2338,11 +2395,13 @@ async function playGame(g) {
 }
 
 function showLibrary() {
+  document.body.classList.add("library-mode");
   el("library").classList.add("show");
   el("library").setAttribute("aria-hidden", "false");
   renderLibrary();
 }
 function hideLibrary() {
+  document.body.classList.remove("library-mode");
   el("library").classList.remove("show");
   el("library").setAttribute("aria-hidden", "true");
 }
@@ -2437,21 +2496,36 @@ async function swapMedia(file) {
   log("media swapped to " + f.name, "ok");
 }
 
-// Shut the machine down and return to the library grid.
+// Shut the machine down and return to the library grid, in place: stop the
+// loop, tear the engine down (which also stops audio), hide the player chrome
+// and reveal the library. No page reload — the next Play/drop/import reloads
+// into a fresh runtime, since a core cannot be re-initialised in place.
 function exitToLibrary() {
   closeMenu(false);
   closeSettings();
-  // A core cannot be re-initialised in-process once it has powered on (see the
-  // ROM loader notes), so a clean "exit" reloads the page and tells the fresh
-  // runtime to open the library instead of auto-booting the bundled image.
-  try { sessionStorage.setItem("asuka.exitToLibrary", "1"); } catch (e) { /* ignore */ }
-  location.reload();
+  releaseAll();
+  if (state.Module) {
+    try { state.Module.ccall("asuka_web_stop", null, [], []); } catch (e) { /* ignore */ }
+    try { state.Module.ccall("asuka_web_shutdown", null, [], []); } catch (e) { /* ignore */ }
+  }
+  state.running = false;
+  // A core has already powered on, so the next boot must go through a reload.
+  state.engineSpent = true;
+  state.currentGame = "";
+  // Hide the player chrome; the library covers the screen.
+  el("menubtn").classList.remove("show");
+  el("modebtn").classList.remove("show");
+  el("snapbar").hidden = true;
+  el("pad").classList.remove("show");
+  el("kbd").classList.remove("show");
+  el("canvas").blur();
+  showLibrary();
 }
 
 // ---------------------------------------------------------------------------
 // Boot the page.
 // ---------------------------------------------------------------------------
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   // Settings first: they restyle the shell and set the audio gain before boot.
   state.settings = loadSettings();
   applySettings();
@@ -2483,20 +2557,28 @@ window.addEventListener("DOMContentLoaded", () => {
   el("rombtn").classList.add("show");
 
   el("canvas").focus();
-  el("loader-retry").onclick = () => location.reload();
   log("Asuka web shell ready");
   if (!window.crossOriginIsolated) {
     log("warning: not cross-origin isolated — threads need COOP/COEP.", "err");
   }
 
-  // "Exit to library" reloads with a marker: open the grid instead of booting.
-  let exit = false;
-  try {
-    exit = sessionStorage.getItem("asuka.exitToLibrary") === "1";
-    sessionStorage.removeItem("asuka.exitToLibrary");
-  } catch (e) { /* ignore */ }
-  if (exit) { loaderDone(); showLibrary(); }
-  else { autoBoot(); }
+  // Decide the landing view. The Games Library is the home screen: the root URL
+  // no longer auto-boots the bundled demo (that trapped users in the canvas).
+  // A boot happens only when the user asked for one:
+  //   ?boot=demo            — boot the bundled image (explicit opt-in)
+  //   ?machine=…            — boot the bundled image for a specific machine
+  //   a game parked in IDB  — a park+reload from Play / drop / import
+  const params = new URLSearchParams(location.search);
+  const wantsBoot = params.has("boot") || params.has("machine");
+  let parked = false;
+  try { parked = await hasPendingGame(); } catch (e) { /* ignore */ }
+
+  if (wantsBoot || parked) {
+    autoBoot();
+  } else {
+    loaderDone();
+    showLibrary();
+  }
 });
 </script>
 </body>
