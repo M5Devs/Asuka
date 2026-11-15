@@ -58,6 +58,14 @@ uint32_t g_held_keys = 0;
 constexpr int kKeyboardKeys = 320;
 bool g_held_keys_kbd[kKeyboardKeys] = {};
 
+// The RetroPad slots the two host action keys drive. PX68k's 2-button pad
+// table maps RetroPad B to JOY_TRG1 (primary fire) and RetroPad A to JOY_TRG2,
+// so the host's primary key must land on RetroPad B.
+constexpr int kRetroPadPrimaryFire = RETRO_DEVICE_ID_JOYPAD_B;   // -> TRG1
+constexpr int kRetroPadSecondaryFire = RETRO_DEVICE_ID_JOYPAD_A; // -> TRG2
+constexpr uint32_t kPadStartBit = 1u << RETRO_DEVICE_ID_JOYPAD_START;
+constexpr uint32_t kPadFireBit = 1u << kRetroPadPrimaryFire;
+
 bool environ_cb(unsigned cmd, void* data) {
     switch (cmd) {
         case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
@@ -129,15 +137,29 @@ int16_t input_state_cb(unsigned port, unsigned device, unsigned /*index*/,
         return (g_held_keys & (1u << id)) != 0 ? 1 : 0;
     }
     if (device == RETRO_DEVICE_KEYBOARD) {
-        return (id < static_cast<unsigned>(kKeyboardKeys) && g_held_keys_kbd[id])
-                   ? 1
-                   : 0;
+        if (id < static_cast<unsigned>(kKeyboardKeys) && g_held_keys_kbd[id]) {
+            return 1;
+        }
+        // Dual-dispatch: X68000 games read "start" and "fire" from the keyboard
+        // (the 2-button pad exposes neither), so the host action keys also
+        // answer for RETURN and SPACE here. Reading the pad bitmap keeps the
+        // two paths in sync without a second piece of held-state to maintain.
+        if (id == static_cast<unsigned>(RETROK_RETURN) &&
+            (g_held_keys & kPadStartBit) != 0) {
+            return 1;
+        }
+        if (id == static_cast<unsigned>(RETROK_SPACE) &&
+            (g_held_keys & kPadFireBit) != 0) {
+            return 1;
+        }
+        return 0;
     }
     return 0;
 }
 
 // Translate a host key to the matching Libretro joypad button id, which the
-// core maps onto X68000 Joypad 1 (see joystick.c's retro pad table).
+// core maps onto X68000 Joypad 1 (see joystick.c's retro pad table). The host's
+// primary fire key lands on the RetroPad slot PX68k turns into JOY_TRG1.
 int ToJoypadId(Key key) {
     switch (key) {
         case Key::Up:     return RETRO_DEVICE_ID_JOYPAD_UP;
@@ -146,8 +168,8 @@ int ToJoypadId(Key key) {
         case Key::Right:  return RETRO_DEVICE_ID_JOYPAD_RIGHT;
         case Key::Start:  return RETRO_DEVICE_ID_JOYPAD_START;
         case Key::Select: return RETRO_DEVICE_ID_JOYPAD_SELECT;
-        case Key::A:      return RETRO_DEVICE_ID_JOYPAD_A;
-        case Key::B:      return RETRO_DEVICE_ID_JOYPAD_B;
+        case Key::A:      return kRetroPadPrimaryFire;
+        case Key::B:      return kRetroPadSecondaryFire;
         case Key::X:      return RETRO_DEVICE_ID_JOYPAD_X;
         case Key::Y:      return RETRO_DEVICE_ID_JOYPAD_Y;
         case Key::L:      return RETRO_DEVICE_ID_JOYPAD_L;

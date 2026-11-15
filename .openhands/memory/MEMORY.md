@@ -177,3 +177,19 @@ durable, cross-task subset.
 - Test harness scripts in `/tmp/smoketest`: `library.mjs` (cards+eruda+x68k card
   boot), `dropdim.mjs`/`dropzip.mjs` (drag-drop real `.dim` and `.zip`),
   `fmtowns.mjs` (FM Towns regression), `switch.mjs`, `live.mjs` (live Pages).
+
+## X68000 (PX68k) input — Task 10
+- Three widely-repeated claims are **wrong**: `retro_set_controller_port_device
+  (0, RETRO_DEVICE_JOYPAD)` is **already called** (`X68kEngine.cpp`), and PX68k
+  does **not** default to `PAD_NONE` — `Config` is zero-init and `PAD_2BUTTON
+  == 0` (joystick reads are live). The real bug was A/B: PX68k's `PAD_2BUTTON`
+  branch maps `JOYPAD_A→JOY_TRG2`, `JOYPAD_B→JOY_TRG1`, so the host's *primary*
+  fire key must land on `JOYPAD_B`.
+- Fix also dual-dispatches the pad START/FIRE bits to `RETROK_RETURN` /
+  `RETROK_SPACE` in the `RETRO_DEVICE_KEYBOARD` branch: PX68k's 2-button pad
+  exposes no start/select, and X68000 titles read start/fire off the keyboard.
+- Verified with **Cho Ren Sha 68K v1.01** `.dim` (archive.org `ch68_101_x68k`,
+  1,261,824 B): PX68k polls the joypad every frame (probe `joy_q=11900`/700 f,
+  `joy_ids=0xffff`), and `a`/`start` change emulated output (baseline-vs-
+  `--press` md5 diff). Battle City (the previous deploy card) never leaves its
+  boot text mode and ignores input — not a usable verification title.
